@@ -12,6 +12,12 @@ def check_pms():
     INSTANCE = config["INSTANCE"]
     COMMUNITY = config["COMMUNITY"]
     SCORE = config["SCORE"]
+    LOCAL = config["LOCAL"]
+
+    if LOCAL == "False":
+        local_only = False
+    if LOCAL == "True":
+        local_only = True
 
     lemmy = Lemmy(INSTANCE)
     lemmy.log_in(USERNAME, PASSWORD)
@@ -32,8 +38,15 @@ def check_pms():
 
         output = lemmy.user.get(pm_sender)
         user_score = output['person_view']['counts']['comment_score']
+        user_local = output['person_view']['person']['local']
 
         print (pm_username + " (" + str(pm_sender) + ") sent " + pm_context + " - user score is " + str(user_score))
+
+        #check if user is local
+        if user_local != local_only:
+            lemmy.private_message.create("Hey, " + pm_username + ". This bot is only for users of Lemmy.zip. \n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+            lemmy.private_message.mark_as_read(pm_id, True)
+            continue
 
         if pm_context == "!help":
             lemmy.private_message.create("Hey, " + pm_username + ". These are the commands I currently know:" + "\n\n - `!help` - See this message. \n - `!score` - See your user score. \n - `!create` - Create a new community. Use @ to specify the name of the community you want to create, for example `!create @bot_community`. " + "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
@@ -47,6 +60,7 @@ def check_pms():
 
         if pm_context.split(" @")[0] == "!create":
             community_name = pm_context.split("@")[1]
+            
 
             #check user score
             if user_score < int(SCORE):
@@ -70,7 +84,7 @@ def check_pms():
 
             lemmy.private_message.create("Hey, " + pm_username + ". Your new community, " + community_name + ", has been created. You can now set this community up to your liking." + "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
-
+            continue
 
         else:
             lemmy.private_message.create("Hey, " + pm_username + ". Sorry, I did not understand your request. Please try again or use `!help` for a list of commands. \n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
