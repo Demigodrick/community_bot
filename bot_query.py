@@ -4,10 +4,14 @@ import logging
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
-def check_pms():
-
+def login():
+    global lemmy
     lemmy = Lemmy("https://" + settings.INSTANCE)
     lemmy.log_in(settings.USERNAME, settings.PASSWORD)
+
+    return lemmy
+
+def check_pms():
 
     pm = lemmy.private_message.list(True, 1)
 
