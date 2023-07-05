@@ -5,7 +5,7 @@ def check_pms():
 
     config = dotenv_values(".env")
 
-    print(".env loaded")
+    #print(".env loaded")
     
     USERNAME = config["USERNAME"]
     PASSWORD = config["PASSWORD"] 
