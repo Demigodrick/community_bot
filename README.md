@@ -27,11 +27,12 @@
 6. `pip install -r requirements.txt`
 
 ### Configure `.env`
-**Copy `env.example` to `.env`
+**Copy `env.example` to `.env`**
 
 7. `cp .env.example .env`
 
 **Update the .env with your details**
+
 8. `nano .env`
 
 Make sure your bot is an admin on your instance.
