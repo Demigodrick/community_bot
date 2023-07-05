@@ -4,6 +4,8 @@
 
 `pip install schedule`
 
+Change .env.example to .env and fill in with your details.
+
 
 # Running on a server
 I recommend screen (if its not already installed) for running this on a server.
