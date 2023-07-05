@@ -6,6 +6,10 @@
 
 Change .env.example to .env and fill in with your details.
 
+Make sure your bot is an admin on your instance.
+
+Changing LOCAL to False will allow anyone from any instance to create a community on your server.
+
 
 # Running on a server
 I recommend screen (if its not already installed) for running this on a server.
