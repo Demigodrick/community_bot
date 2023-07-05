@@ -12,7 +12,6 @@ def check_pms():
         local_only = True
 
     lemmy = Lemmy(settings.INSTANCE)
-    logging.info(settings.USERNAME)
     lemmy.log_in(settings.USERNAME, settings.PASSWORD)
 
     pm = lemmy.private_message.list(True, 1)
