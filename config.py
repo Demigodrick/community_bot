@@ -7,7 +7,6 @@ class Settings(BaseSettings):
     PASSWORD: str
     BOT_ID: int
     INSTANCE: str
-    COMMUNITY: str
     SCORE: int
     LOCAL: bool
 

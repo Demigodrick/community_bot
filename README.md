@@ -20,7 +20,7 @@
 
 **Active the virtual environment**
 
-5. `source venv/bin/active`
+5. `source venv/bin/activate`
 
 ### Install requirements
 

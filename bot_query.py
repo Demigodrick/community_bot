@@ -2,25 +2,16 @@ from pythorhead import Lemmy
 from config import settings
 import logging
 
-logging.basicConfig(level=logging.INFO,
-                    format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def check_pms():
-    if settings.LOCAL == False:
-        local_only = False
-    if settings.LOCAL == True:
-        local_only = True
 
-    lemmy = Lemmy(settings.INSTANCE)
+    lemmy = Lemmy("https://" + settings.INSTANCE)
     lemmy.log_in(settings.USERNAME, settings.PASSWORD)
 
     pm = lemmy.private_message.list(True, 1)
 
-    # check PMs
-
-    unread_pm = lemmy.private_message.list(True, 1)
-
-    private_messages = unread_pm['private_messages']
+    private_messages = pm['private_messages']
 
     for pm in private_messages:
         pm_sender = pm['private_message']['creator_id']
@@ -36,35 +27,27 @@ def check_pms():
 
         # check if user is local
         if user_local != settings.LOCAL:
-            lemmy.private_message.create(
-                "Hey, " + pm_username + f". This bot is only for users of {settings.INSTANCE}. \n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.",
-                pm_sender)
+            lemmy.private_message.create("Hey, " + pm_username + f". This bot is only for users of {settings.INSTANCE}. "
+                                         "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
-        if pm_context == "!help":
+        if pm_context == "#help":
             lemmy.private_message.create("Hey, " + pm_username + ". These are the commands I currently know:" + "\n\n "
-                                                                                                                "- "
-                                                                                                                "`!help` - See this message. \n - `!score` - See your user score. \n - `!create` - Create a new community. Use @ to specify the name of the community you want to create, for example `!create @bot_community`. " + "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.",
-                                         pm_sender)
+                                                                        "- `#help` - See this message. \n "
+                                                                        "- `#score` - See your user score. \n "
+                                                                        "- `#create` - Create a new community. Use @ to specify the name of the community you want to create, for example `#create @bot_community`. " 
+                                                                        "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
-        if pm_context == "!score":
-            lemmy.private_message.create("Hey, " + pm_username + ". Your comment score is " + str(user_score) + "\n "
-                                                                                                                "\n I "
-                                                                                                                "am a "
-                                                                                                                "Bot. "
-                                                                                                                "If "
-                                                                                                                "you "
-                                                                                                                "have "
-                                                                                                                "any "
-                                                                                                                "queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.",
-                                         pm_sender)
+        if pm_context == "#score":
+            lemmy.private_message.create("Hey, " + pm_username + ". Your comment score is " + str(user_score) + "\n \n I am a Bot. If you have any "
+                                                                 "queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
-        if pm_context.split(" @")[0] == "!create":
+        if pm_context.split(" @")[0] == "#create":
             community_name = pm_context.split("@")[1]
 
             # check user score
@@ -72,7 +55,7 @@ def check_pms():
                 lemmy.private_message.create("Hey, " + pm_username + ". Your comment score is too low to create a "
                                                                      "community. Please interact with other "
                                                                      "communities first. You can check your score at "
-                                                                     "any time by sending me a message with `!score` "
+                                                                     "any time by sending me a message with `#score` "
                                                                      "and I will let you know!"  "\n \n I am a Bot. "
                                                                      "If you have any queries, please contact ["
                                                                      "Demigodrick](/u/demigodrick@lemmy.zip) or ["
@@ -98,16 +81,14 @@ def check_pms():
             lemmy.community.add_mod_to_community(True, community_id, pm_sender)
             lemmy.community.add_mod_to_community(False, community_id, settings.BOT_ID)
 
-            lemmy.private_message.create("Hey, " + pm_username + ". Your new community, " + community_name + ", has "
-                                                                                                             "been "
-                                                                                                             "created. You can now set this community up to your liking." + "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.",
-                                         pm_sender)
+            lemmy.private_message.create("Hey, " + pm_username + ". Your new community, [" + community_name + "](/c/" + community_name + "), has been created. You can now set this community up to your liking. " 
+                                                                 "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
         else:
             lemmy.private_message.create("Hey, " + pm_username + ". Sorry, I did not understand your request. Please "
-                                                                 "try again or use `!help` for a list of commands. \n "
+                                                                 "try again or use `#help` for a list of commands. \n "
                                                                  "\n I am a Bot. If you have any queries, "
                                                                  "please contact [Demigodrick]("
                                                                  "/u/demigodrick@lemmy.zip) or [Sami]("
