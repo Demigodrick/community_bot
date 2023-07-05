@@ -1,10 +1,12 @@
 from bot_query import check_pms
 import schedule
 import time
+import logging
 
+logging.basicConfig(level=logging.INFO,
+                    format='%(asctime)s - %(levelname)s - %(message)s')
 
-
-print("Bot starting")
+logging.info("Bot starting...")
 schedule.every(3).seconds.do(check_pms)
 
 while True:
