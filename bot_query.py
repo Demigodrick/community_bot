@@ -16,22 +16,32 @@ def check_db():
     conn = sqlite3.connect('vote.db')
     curs = conn.cursor()
 
+    #check for votes table or create
     curs.execute(''' SELECT count(name) FROM sqlite_master WHERE type='table' AND name='votes' ''')
 
     if curs.fetchone()[0]==1:
-        logging.debug("table exists, moving on")
-        curs.close
-        conn.close
-        return
+        logging.debug("votes table exists, moving on")
+        
     else:
-        curs.execute('''CREATE TABLE IF NOT EXISTS votes
-                        (vote_id TEXT, username TEXT, vote_result TEXT)''')
+        curs.execute('''CREATE TABLE IF NOT EXISTS votes (vote_id TEXT, username TEXT, vote_result TEXT)''')
         conn.commit
-        curs.close
-        conn.close
-        logging.debug("created table")
-        return
+        logging.debug("created votes table")
     
+    #check for polls table or create    
+    curs.execute(''' SELECT count(name) FROM sqlite_master WHERE type='table' AND name='polls' ''')
+
+    if curs.fetchone()[0]==1:
+        logging.debug("polls table exists, moving on")
+        
+    else:
+        curs.execute('''CREATE TABLE IF NOT EXISTS polls (poll_id TEXT, poll_name TEST, username TEXT, open TEXT)''')
+        conn.commit
+        logging.debug("created polls table")
+
+    
+    curs.close
+    conn.close    
+    return
    
 def add_vote_to_db(pm_username, vote_id, vote_response):
     conn = sqlite3.connect('vote.db')
@@ -59,6 +69,30 @@ def add_vote_to_db(pm_username, vote_id, vote_response):
     logging.debug("Added vote to database")
     return 
 
+def create_poll(poll_name, pm_username): 
+    conn = sqlite3.connect('vote.db')
+    curs = conn.cursor()
+
+    #find last row of poll table to get ID number
+    curs.execute("SELECT * FROM polls ORDER BY poll_id DESC LIMIT 1")
+    result = curs.fetchone()
+    if result is not None:
+        poll_id = int(result[0]) + 1
+    else:
+        poll_id = 1
+    
+    isopen = True
+
+    data_tuple = (poll_id, poll_name, pm_username, isopen)
+    sqlite_insert_query = """INSERT INTO polls (poll_id, poll_name, username, open) VALUES (?, ?, ?, ?);"""
+    curs.execute(sqlite_insert_query, data_tuple)
+    conn.commit()
+    curs.close
+    conn.close
+    logging.debug("Added poll to database with ID number " + str(poll_id))
+    return poll_id
+
+
 
 def check_pms():
     try:
@@ -80,7 +114,7 @@ def check_pms():
         user_local = output['person_view']['person']['local']
         user_admin = output['person_view']['person']['admin']
 
-        logging.debug(pm_username + " (" + str(pm_sender) + ") sent " + pm_context + " - user score is " + str(user_score))
+        logging.debug(pm_username + " (" + str(pm_sender) + ") sent " + pm_context + " - user score is " + str(user_score) + " " + str(user_admin))
 
         if user_local != settings.LOCAL:
             lemmy.private_message.create("Hey, " + pm_username + f". This bot is only for users of {settings.INSTANCE}. "
@@ -89,14 +123,15 @@ def check_pms():
             continue
 
         if pm_context == "#help":
-            if user_admin == "True":
+            if user_admin == True:
                 lemmy.private_message.create("Hey, " + pm_username + ". These are the commands I currently know:" + "\n\n "
                                                                             "- `#help` - See this message. \n "
                                                                             "- `#score` - See your user score. \n "
-                                                                            "- `#create` - Create a new community. Use @ to specify the name of the community you want to create, for example `#create @bot_community`. "
-                                                                            "\n As an Admin, you also have access to the following commands:"
-                                                                            "- `#poll` - Create a poll for users to vote on. Give your poll a name, and you will get back an ID number to users so they can vote on your poll. Example usage: `#poll @Vote for best admin`"
-                                                                            "- `#closepoll - Close an existing poll using the poll ID number, for example `#closepoll @1`" 
+                                                                            "- `#create` - Create a new community. Use @ to specify the name of the community you want to create, for example `#create @bot_community`. \n"
+                                                                            "- `#vote` - Vote on an active poll. You'll need to have a vote ID number. An example vote would be `#vote @1 @yes` or `#vote @1 @no'."
+                                                                            "\n\n As an Admin, you also have access to the following commands: \n"
+                                                                            "- `#poll` - Create a poll for users to vote on. Give your poll a name, and you will get back an ID number to users so they can vote on your poll. Example usage: `#poll @Vote for best admin` \n"
+                                                                            "- `#closepoll` - Close an existing poll using the poll ID number, for example `#closepoll @1`" 
                                                                             "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
@@ -104,7 +139,8 @@ def check_pms():
                 lemmy.private_message.create("Hey, " + pm_username + ". These are the commands I currently know:" + "\n\n "
                                                                             "- `#help` - See this message. \n "
                                                                             "- `#score` - See your user score. \n "
-                                                                            "- `#create` - Create a new community. Use @ to specify the name of the community you want to create, for example `#create @bot_community`. " 
+                                                                            "- `#create` - Create a new community. Use @ to specify the name of the community you want to create, for example `#create @bot_community`. \n"
+                                                                            "- `#vote` - Vote on an active poll. You'll need to have a vote ID number. An example vote would be `#vote @1 @yes` or `#vote @1 @no'." 
                                                                             "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
@@ -172,7 +208,13 @@ def check_pms():
             continue
 
 
-
+        if pm_context.split(" @")[0] == "#poll":
+            if user_admin == True:
+                poll_name = pm_context.split("@")[1]
+                poll_id = create_poll(poll_name, pm_username) 
+                lemmy.private_message.create("Hey, " + pm_username + ". Your poll has been created with ID number " + poll_id + ". You can now give this ID to people and they can now cast a vote using the `#vote` operator." 
+                                                                 "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
 
         #keep this at the bottom
         else:
