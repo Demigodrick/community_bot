@@ -23,7 +23,7 @@ def check_db():
         logging.debug("votes table exists, moving on")
         
     else:
-        curs.execute('''CREATE TABLE IF NOT EXISTS votes (vote_id TEXT, username TEXT, vote_result TEXT)''')
+        curs.execute('''CREATE TABLE IF NOT EXISTS votes (vote_id INT, username TEXT, vote_result TEXT)''')
         conn.commit
         logging.debug("created votes table")
     
@@ -34,7 +34,7 @@ def check_db():
         logging.debug("polls table exists, moving on")
         
     else:
-        curs.execute('''CREATE TABLE IF NOT EXISTS polls (poll_id TEXT, poll_name TEST, username TEXT, open TEXT)''')
+        curs.execute('''CREATE TABLE IF NOT EXISTS polls (poll_id INT, poll_name TEST, username TEXT, open TEXT)''')
         conn.commit
         logging.debug("created polls table")
 
@@ -46,7 +46,15 @@ def check_db():
 def add_vote_to_db(pm_username, vote_id, vote_response):
     conn = sqlite3.connect('vote.db')
     curs = conn.cursor()
+    #check vote_id(poll_id in polls table) is valid
 
+    curs.execute('''SELECT poll_id FROM polls WHERE poll_id=?''',(vote_id))
+    check_valid = curs.fetchone
+    if check_valid is None:
+        logging.debug("Submitted vote_id did not match a valid poll_id")
+        return "notvalid"
+
+        
     #check if vote response is already recorded for this user/vote id
     curs.execute('''SELECT vote_id, username FROM votes WHERE vote_id=? AND username=?''',(vote_id, pm_username))
 
@@ -128,7 +136,7 @@ def check_pms():
                                                                             "- `#help` - See this message. \n "
                                                                             "- `#score` - See your user score. \n "
                                                                             "- `#create` - Create a new community. Use @ to specify the name of the community you want to create, for example `#create @bot_community`. \n"
-                                                                            "- `#vote` - Vote on an active poll. You'll need to have a vote ID number. An example vote would be `#vote @1 @yes` or `#vote @1 @no'."
+                                                                            "- `#vote` - Vote on an active poll. You'll need to have a vote ID number. An example vote would be `#vote @1 @yes` or `#vote @1 @no`."
                                                                             "\n\n As an Admin, you also have access to the following commands: \n"
                                                                             "- `#poll` - Create a poll for users to vote on. Give your poll a name, and you will get back an ID number to users so they can vote on your poll. Example usage: `#poll @Vote for best admin` \n"
                                                                             "- `#closepoll` - Close an existing poll using the poll ID number, for example `#closepoll @1`" 
@@ -140,7 +148,7 @@ def check_pms():
                                                                             "- `#help` - See this message. \n "
                                                                             "- `#score` - See your user score. \n "
                                                                             "- `#create` - Create a new community. Use @ to specify the name of the community you want to create, for example `#create @bot_community`. \n"
-                                                                            "- `#vote` - Vote on an active poll. You'll need to have a vote ID number. An example vote would be `#vote @1 @yes` or `#vote @1 @no'." 
+                                                                            "- `#vote` - Vote on an active poll. You'll need to have a vote ID number. An example vote would be `#vote @1 @yes` or `#vote @1 @no`." 
                                                                             "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
@@ -212,9 +220,14 @@ def check_pms():
             if user_admin == True:
                 poll_name = pm_context.split("@")[1]
                 poll_id = create_poll(poll_name, pm_username) 
-                lemmy.private_message.create("Hey, " + pm_username + ". Your poll has been created with ID number " + poll_id + ". You can now give this ID to people and they can now cast a vote using the `#vote` operator." 
+                lemmy.private_message.create("Hey, " + pm_username + ". Your poll has been created with ID number " + str(poll_id) + ". You can now give this ID to people and they can now cast a vote using the `#vote` operator." 
                                                                  "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
+            else:
+                lemmy.private_message.create("Hey, " + pm_username + ". You need to be an instance admin in order to create a poll."
+                                                                 "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+
 
         #keep this at the bottom
         else:
