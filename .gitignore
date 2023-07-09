@@ -8,3 +8,4 @@ database.sqlite
 .python-version
 **.env
 save.file
+*.db
