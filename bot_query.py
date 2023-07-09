@@ -47,14 +47,17 @@ def add_vote_to_db(pm_username, vote_id, vote_response):
     conn = sqlite3.connect('vote.db')
     curs = conn.cursor()
     #check vote_id(poll_id in polls table) is valid
+    poll_id = int(vote_id)
 
-    curs.execute('''SELECT poll_id FROM polls WHERE poll_id=?''',(vote_id))
-    check_valid = curs.fetchone
+
+    curs.execute('''SELECT poll_id, poll_name FROM polls WHERE poll_id=?''', (poll_id,))
+    check_valid = curs.fetchone()
     if check_valid is None:
         logging.debug("Submitted vote_id did not match a valid poll_id")
         return "notvalid"
 
-        
+    poll_name = check_valid[1]   
+
     #check if vote response is already recorded for this user/vote id
     curs.execute('''SELECT vote_id, username FROM votes WHERE vote_id=? AND username=?''',(vote_id, pm_username))
 
@@ -75,7 +78,7 @@ def add_vote_to_db(pm_username, vote_id, vote_response):
     curs.close
     conn.close
     logging.debug("Added vote to database")
-    return 
+    return poll_name
 
 def create_poll(poll_name, pm_username): 
     conn = sqlite3.connect('vote.db')
@@ -203,17 +206,25 @@ def check_pms():
             vote_id = pm_context.split("@")[1]
             vote_response = pm_context.split("@")[2]
 
-            if add_vote_to_db(pm_username,vote_id,vote_response) == "duplicate":
+            db_response = add_vote_to_db(pm_username,vote_id,vote_response) 
+
+            if db_response == "duplicate":
                 lemmy.private_message.create("Hey, " + pm_username + ". Oops! It looks like you've already voted on this poll. Votes can only be counted once. " 
                                                                  "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
-            
-            else:
-                lemmy.private_message.create("Hey, " + pm_username + ". Your vote has been counted. Thank you for voting! " 
+                continue
+
+            if db_response == "notvalid":
+                lemmy.private_message.create("Hey, " + pm_username + ". Oops! It doesn't look like the poll you've tried to vote on exists. Please double check the vote ID and try again." 
                                                                  "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
+                continue
 
-            continue
+            else:
+                lemmy.private_message.create("Hey, " + pm_username + ". Your vote has been counted on the '" + db_response + "' poll . Thank you for voting! " 
+                                                                 "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
 
 
         if pm_context.split(" @")[0] == "#poll":
