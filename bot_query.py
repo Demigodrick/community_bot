@@ -4,11 +4,11 @@ import logging
 import sqlite3
 
 ## TODO
-## - Credits command
-## - rules command
+## - email validation
+## - finish polls (closure)
 
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def login():
     global lemmy
@@ -117,6 +117,7 @@ def check_pms():
         private_messages = pm['private_messages']
     except:
         logging.info("Error with connection, retrying...")
+        login()
         return
 
     for pm in private_messages:
@@ -142,9 +143,11 @@ def check_pms():
             if user_admin == True:
                 lemmy.private_message.create("Hey, " + pm_username + ". These are the commands I currently know:" + "\n\n "
                                                                             "- `#help` - See this message. \n "
+                                                                            "- `#rules` - See the current instance rules."
                                                                             "- `#score` - See your user score. \n "
                                                                             "- `#create` - Create a new community. Use @ to specify the name of the community you want to create, for example `#create @bot_community`. \n"
-                                                                            "- `#vote` - Vote on an active poll. You'll need to have a vote ID number. An example vote would be `#vote @1 @yes` or `#vote @1 @no`."
+                                                                            "- `#vote` - Vote on an active poll. You'll need to have a vote ID number. An example vote would be `#vote @1 @yes` or `#vote @1 @no`.\n" 
+                                                                            "- `#credits` - See who spent their time making this bot work!"
                                                                             "\n\n As an Admin, you also have access to the following commands: \n"
                                                                             "- `#poll` - Create a poll for users to vote on. Give your poll a name, and you will get back an ID number to users so they can vote on your poll. Example usage: `#poll @Vote for best admin` \n"
                                                                             "- `#closepoll` - Close an existing poll using the poll ID number, for example `#closepoll @1`" 
@@ -154,9 +157,11 @@ def check_pms():
             else:
                 lemmy.private_message.create("Hey, " + pm_username + ". These are the commands I currently know:" + "\n\n "
                                                                             "- `#help` - See this message. \n "
+                                                                            "- `#rules` - See the current instance rules."
                                                                             "- `#score` - See your user score. \n "
                                                                             "- `#create` - Create a new community. Use @ to specify the name of the community you want to create, for example `#create @bot_community`. \n"
-                                                                            "- `#vote` - Vote on an active poll. You'll need to have a vote ID number. An example vote would be `#vote @1 @yes` or `#vote @1 @no`." 
+                                                                            "- `#vote` - Vote on an active poll. You'll need to have a vote ID number. An example vote would be `#vote @1 @yes` or `#vote @1 @no`.\n" 
+                                                                            "- `#credits` - See who spent their time making this bot work!"
                                                                             "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
@@ -167,6 +172,40 @@ def check_pms():
                                                                 "queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
+
+        if pm_context == "#rules":
+            lemmy.private_message.create("Hey, " + pm_username + ". These are the current rules for Lemmy.zip. \n \n"
+                                                                    "- Please abide by the [General Code of Conduct](https://join-lemmy.org/docs/en/code_of_conduct.html) at all times.\n"
+                                                                    "- Remember the human! (no harassment, threats, etc.)\n"
+                                                                    "- No racism or other discrimination\n"
+                                                                    "- No endorsement of hate speech\n"
+                                                                    "- No self-advertisements or spam\n"
+                                                                    "- No link-spamming\n"
+                                                                    "- No content against UK law.\n"
+                                                                    "- Any NSFW post must be tagged as NSFW. Failure to do so will be given one warning only\n"
+                                                                    "- Anything that you wouldn’t want your boss or coworkers to see, needs to be tagged NSFW\n"
+                                                                    "- NSFW also acts as “Content Warning” outside of the specific NSFW communities\n\n"
+                                                                    "Any posts or comments that are in breach of these rules will be dealt with, and remediation will occur. Whether that be a warning, temporary ban, or permanent ban.\n\n"
+                                                                    "(TLDR) The crux of it boils down to:\n"
+                                                                    "- Remember that we are all humans\n"
+                                                                    "- Don’t be overtly aggressive towards anyone\n"
+                                                                    "- Try and share ideas, thoughts and criticisms in a constructive way\n"
+                                                                    "- Tag any NSFW posts as such"                                       
+                                                                    "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+            lemmy.private_message.mark_as_read(pm_id, True)
+            continue
+
+
+        if pm_context == "#credits":
+            lemmy.private_message.create("Hey, " + pm_username + ". This bot was built with help and support from various community members and contributers: \n\n"
+                                                                "- Demigodrick - Original Creator\n"
+                                                                "- Sami - Support with original idea and implementation \n"
+                                                                "- TheDuude (sh.itjust.works) - Refactoring of code and support with improving inital implementation \n"
+                                                                "- efwis - code contributions regarding new user database \n\n"
+                                                                "I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+            lemmy.private_message.mark_as_read(pm_id, True)
+            continue
+
 
         if pm_context.split(" @")[0] == "#create":
             community_name = pm_context.split("@")[1]
@@ -278,9 +317,14 @@ def check_user_db():
 
 
 def get_new_users():
-    output = lemmy.admin.list_applications(unread_only="true")
+    try:
+        output = lemmy.admin.list_applications(unread_only="true")
+        new_apps = output['registration_applications']
+    except:
+        logging.info("Error with connection, retrying...")
+        login()
+        return
 
-    new_apps = output['registration_applications']
     for output in new_apps:
 
         #something in here about filtering out email addresses
