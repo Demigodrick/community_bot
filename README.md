@@ -1,5 +1,12 @@
 # community_bot
 
+
+## Features
+- Poll feature (WIP) - Admins can create polls and users can vote on them
+- Help functionality. The bot will PM helpul advice.
+- Welcome PM - the bot scans new applications to the site and sends a PM to the user with helpful info
+- Create a community. The bot will allow a user with a score above one you set to create a community via PM. The bot will add the user as a mod then de-mod itself. Useful for turning off open community applications and allowing trusted members to create communities.
+
 ## Install
 
 **Clone Repository**
@@ -52,4 +59,4 @@ Go to where you've saved the script on the server
 
 Ctrl-A then D to get out of your screen
 
-
+You can also build and run via docker.

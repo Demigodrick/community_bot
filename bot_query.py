@@ -3,6 +3,11 @@ from config import settings
 import logging
 import sqlite3
 
+## TODO
+## - Credits command
+## - rules command
+
+
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def login():
@@ -12,7 +17,7 @@ def login():
 
     return lemmy
 
-def check_db():
+def check_vote_db():
     conn = sqlite3.connect('vote.db')
     curs = conn.cursor()
 
@@ -252,3 +257,70 @@ def check_pms():
             continue
 
 
+def check_user_db():
+    conn = sqlite3.connect('users.db')
+    curs = conn.cursor()
+    
+    #check for users table or create
+    curs.execute(''' SELECT count(name) FROM sqlite_master WHERE type='table' AND name='users' ''')
+
+    if curs.fetchone()[0]==1:
+        logging.debug("users table exists, moving on")
+        
+    else:
+        curs.execute('''CREATE TABLE IF NOT EXISTS users (local_user_id INT, public_user_id INT, username TEXT, has_posted INT, has_had_pm INT)''') #local_user_id, public_user_id, username, has_posted, has_had_pm,
+        conn.commit
+        logging.debug("created users table")
+
+    curs.close
+    conn.close    
+    return
+
+
+def get_new_users():
+    output = lemmy.admin.list_applications(unread_only="true")
+
+    new_apps = output['registration_applications']
+    for output in new_apps:
+
+        #something in here about filtering out email addresses
+        local_user_id = output['registration_application']['local_user_id']
+        username = output['creator']['name']
+        #email = output['creator_local_user']['email']
+        public_user_id = output['creator_local_user']['person_id']
+
+        if update_registration_db(local_user_id, username, public_user_id) == "new_user":
+            logging.debug("sending new user a pm")
+            lemmy.private_message.create("Hey, " + username + ". \n \n # Welcome to Lemmy.zip! \n \n Please take a moment to familiarise yourself with [our Welcome Post](https://lemmy.zip/post/43)." 
+                                                            "This post has all the information you'll need to get started on Lemmy, so please have a good read first! \n \n"
+                                                            "Please also take a look at our rules, they are in the sidebar of this instance. I can send these to you at any time, just send me a message with `#rules`. \n \n"
+                                                            "If you're on a mobile device, you can [tap here](https://m.lemmy.zip) to go straight to our mobile site. \n \n"
+                                                            "Lemmy.zip is 100% funded by user donations, so if you are enjoying your time on Lemmy.zip please [consider donating](https://opencollective.com/lemmyzip).\n \n"
+                                                            "If you'd like more help, please reply to this message with `#help` for a list of things I can help with. \n \n"
+                                                            "I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip) via email to `hello@lemmy.zip`. Beep Boop. ", public_user_id)
+        continue
+
+def update_registration_db(local_user_id, username, public_user_id):
+    conn = sqlite3.connect('users.db')
+    curs = conn.cursor()
+    #search db for matching user id local_user_id, public_user_id, username, has_posted, has_had_pm,
+    
+
+    curs.execute('''SELECT local_user_id FROM users WHERE local_user_id=?''', (local_user_id,))
+    id_match = curs.fetchone()
+
+    if id_match is not None:
+        logging.debug("Matching ID found, ignoring")
+        return "duplicate"
+    
+    if id_match is None:
+        logging.debug("User ID did not match an existing user ID, adding")       
+        sqlite_insert_query = """INSERT INTO users (local_user_id, public_user_id, username) VALUES (?, ?, ?);"""
+        data_tuple = (local_user_id, public_user_id, username)
+        
+        curs.execute(sqlite_insert_query, data_tuple)
+        conn.commit()
+        curs.close
+        conn.close
+        logging.debug("Added new user to database")
+        return "new_user"
