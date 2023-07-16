@@ -311,6 +311,16 @@ def check_user_db():
         conn.commit
         logging.debug("created users table")
 
+    curs.execute(''' SELECT count(name) FROM sqlite_master WHERE type='table' AND name='communities' ''')
+
+    if curs.fetchone()[0]==1:
+        logging.debug("communities table exists, moving on")
+
+    else:
+        curs.execute('''CREATE TABLE IF NOT EXISTS communities (community_id INT, community_name TEXT)''')
+        conn.commit
+        logging.debug("created community table")
+
     curs.close
     conn.close    
     return
@@ -368,3 +378,56 @@ def update_registration_db(local_user_id, username, public_user_id):
         conn.close
         logging.debug("Added new user to database")
         return "new_user"
+    
+def get_communities():
+    try:
+        communities = lemmy.community.list(limit=10, page=1, sort="New", type_="Local")
+        local_comm = communities['communities']
+    except:
+        logging.info("Error with connection, retrying...")
+        login()
+        return
+
+    for communities in local_comm:
+        community_id = communities['community']['id']
+        community_name = communities['community']['name']
+        
+        find_mod = lemmy.community.get(community_id)
+        mods = find_mod['moderators']
+
+        for find_mod in mods:
+            mod_id = find_mod['moderator']['id']
+            mod_name = find_mod['moderator']['name']
+
+        if new_community_db(community_id, community_name) == "community":
+            lemmy.private_message.create("Hey, " + mod_name + ". Congratulations on creating your community, [" + community_name + "](/c/"+community_name+"@lemmy.zip). \n Here are some tips for getting users to subscribe to your new community!\n"
+                                                                "- Try posting a link to your community at [New Communites](/c/newcommunities@lemmy.world).\n"
+                                                                "- Ensure your community has some content. Users are more likely to subscribe if content is already available.(5 to 10 posts is usually a good start)\n"
+                                                                "- Consistency is key - you need to post consistently and respond to others to keep engagement with your new community up.\n"
+                                                                "I hope this helps!"
+                                                                "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", mod_id)    
+
+
+def new_community_db(community_id, community_name):
+    conn = sqlite3.connect('users.db')
+    curs = conn.cursor()
+
+    #search db to see if community exists in DB already
+    curs.execute('''SELECT community_id FROM communities WHERE community_id=?''', (community_id,))
+    id_match = curs.fetchone()
+
+    if id_match is not None:
+        logging.debug("Matching community ID found, ignoring")
+        return "duplicate"
+    
+    if id_match is None:
+        logging.debug("community ID did not match an existing community ID, adding")       
+        sqlite_insert_query = """INSERT INTO communities (community_id, community_name) VALUES (?, ?);"""
+        data_tuple = (community_id, community_name)
+        
+        curs.execute(sqlite_insert_query, data_tuple)
+        conn.commit()
+        curs.close
+        conn.close
+        logging.debug("Added new community to database")
+        return "community"

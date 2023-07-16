@@ -1,4 +1,4 @@
-from bot_query import check_pms, login, check_vote_db, get_new_users, check_user_db
+from bot_query import check_pms, login, check_vote_db, get_new_users, check_user_db, get_communities
 import schedule
 import time
 import logging
@@ -14,6 +14,7 @@ if __name__ == "__main__":
     check_user_db()
     schedule.every(3).seconds.do(check_pms)
     schedule.every(3).seconds.do(get_new_users)
+    schedule.every(20).seconds.do(get_communities)  
 
 while True:
     schedule.run_pending()

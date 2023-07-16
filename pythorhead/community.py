@@ -92,20 +92,9 @@ class Community:
         Returns:
             List[dict]: list of communities
         """
-        list_community: dict = {}
-
-        if limit is not None:
-            list_community["limit"] = limit
-        if page is not None:
-            list_community["page"] = page
-        if sort is not None:
-            list_community["sort"] = sort.value
-        if type_ is not None:
-            list_community["type"] = type_.value
-
-        if data := self._requestor.api(Request.GET, "/community/list", params=list_community):
-            return data["communities"]
-        return []
+   
+        params: list[str, Any] = {key: value for key, value in locals().items() if value is not None and key != "self"}
+        return self._requestor.api(Request.GET, "/community/list", params=params)
 
     def follow(self, id: int, follow: Optional[bool] = True):
         """
