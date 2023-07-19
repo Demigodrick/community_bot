@@ -1,4 +1,5 @@
 from pythorhead import Lemmy
+from pythorhead.types import SortType, ListingType
 from config import settings
 import logging
 import sqlite3
@@ -8,7 +9,7 @@ import sqlite3
 ## - finish polls (closure)
 
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def login():
     global lemmy
@@ -381,8 +382,10 @@ def update_registration_db(local_user_id, username, public_user_id):
     
 def get_communities():
     try:
-        communities = lemmy.community.list(limit=10, page=1, sort="New", type_="Local")
-        local_comm = communities['communities']
+        communities = lemmy.community.list(limit=10, page=1, sort=SortType.New, type_=ListingType.Local)
+        local_comm = communities
+        print(communities)
+        print(local_comm)
     except:
         logging.info("Error with connection, retrying...")
         login()
@@ -401,9 +404,9 @@ def get_communities():
 
         if new_community_db(community_id, community_name) == "community":
             lemmy.private_message.create("Hey, " + mod_name + ". Congratulations on creating your community, [" + community_name + "](/c/"+community_name+"@lemmy.zip). \n Here are some tips for getting users to subscribe to your new community!\n"
-                                                                "- Try posting a link to your community at [New Communites](/c/newcommunities@lemmy.world).\n"
+                                                                "- Try posting a link to your community at [New Communities](/c/newcommunities@lemmy.world).\n"
                                                                 "- Ensure your community has some content. Users are more likely to subscribe if content is already available.(5 to 10 posts is usually a good start)\n"
-                                                                "- Consistency is key - you need to post consistently and respond to others to keep engagement with your new community up.\n"
+                                                                "- Consistency is key - you need to post consistently and respond to others to keep engagement with your new community up.\n\n"
                                                                 "I hope this helps!"
                                                                 "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", mod_id)    
 
@@ -430,4 +433,4 @@ def new_community_db(community_id, community_name):
         curs.close
         conn.close
         logging.debug("Added new community to database")
-        return "community"
+        return "testing"

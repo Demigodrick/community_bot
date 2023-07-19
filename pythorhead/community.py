@@ -87,14 +87,16 @@ class Community:
             limit (Optional[int], optional): Defaults to None.
             page (Optional[int], optional): Defaults to None.
             sort (Optional[SortType], optional): Defaults to None.
-            type_ (Optional[ListingType], optional): Defaults to None.
+            type_ (Optional[ListingType], optional): Defaults to None. 
 
         Returns:
             List[dict]: list of communities
         """
-   
+
         params: list[str, Any] = {key: value for key, value in locals().items() if value is not None and key != "self"}
-        return self._requestor.api(Request.GET, "/community/list", params=params)
+        if data := self._requestor.api(Request.GET, "/community/list", params=params):
+            return data["communities"]
+        return []
 
     def follow(self, id: int, follow: Optional[bool] = True):
         """
