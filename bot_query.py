@@ -298,33 +298,31 @@ def check_pms():
 
 
 def check_user_db():
-    conn = sqlite3.connect('users.db')
-    curs = conn.cursor()
-    
-    #check for users table or create
-    curs.execute(''' SELECT count(name) FROM sqlite_master WHERE type='table' AND name='users' ''')
+    try:
+        with sqlite3.connect('users.db') as conn:
+            curs = conn.cursor()
 
-    if curs.fetchone()[0]==1:
-        logging.debug("users table exists, moving on")
-        
-    else:
-        curs.execute('''CREATE TABLE IF NOT EXISTS users (local_user_id INT, public_user_id INT, username TEXT, has_posted INT, has_had_pm INT)''') #local_user_id, public_user_id, username, has_posted, has_had_pm,
-        conn.commit
-        logging.debug("created users table")
+            # create 'users' table if it doesn't exist
+            curs.execute('''CREATE TABLE IF NOT EXISTS users (
+                                local_user_id INT, 
+                                public_user_id INT, 
+                                username TEXT, 
+                                has_posted INT, 
+                                has_had_pm INT
+                            )''')
+            logging.debug("Checked 'users' table")
 
-    curs.execute(''' SELECT count(name) FROM sqlite_master WHERE type='table' AND name='communities' ''')
+            # create 'communities' table if it doesn't exist
+            curs.execute('''CREATE TABLE IF NOT EXISTS communities (
+                                community_id INT, 
+                                community_name TEXT
+                            )''')
+            logging.debug("Checked 'communities' table")
 
-    if curs.fetchone()[0]==1:
-        logging.debug("communities table exists, moving on")
-
-    else:
-        curs.execute('''CREATE TABLE IF NOT EXISTS communities (community_id INT, community_name TEXT)''')
-        conn.commit
-        logging.debug("created community table")
-
-    curs.close
-    conn.close    
-    return
+    except sqlite3.Error as error:
+        logging.error("Failed to execute sqlite statement", error)
+    except Exception as error:
+        logging.error("An error occurred", error)
 
 
 def get_new_users():
@@ -356,29 +354,31 @@ def get_new_users():
         continue
 
 def update_registration_db(local_user_id, username, public_user_id):
-    conn = sqlite3.connect('users.db')
-    curs = conn.cursor()
-    #search db for matching user id local_user_id, public_user_id, username, has_posted, has_had_pm,
-    
+    try:
+        with sqlite3.connect('users.db') as conn:
+            curs = conn.cursor()
 
-    curs.execute('''SELECT local_user_id FROM users WHERE local_user_id=?''', (local_user_id,))
-    id_match = curs.fetchone()
+            #search db for matching user id
+            curs.execute('SELECT local_user_id FROM users WHERE local_user_id=?', (local_user_id,))
+            id_match = curs.fetchone()
 
-    if id_match is not None:
-        logging.debug("Matching ID found, ignoring")
-        return "duplicate"
-    
-    if id_match is None:
-        logging.debug("User ID did not match an existing user ID, adding")       
-        sqlite_insert_query = """INSERT INTO users (local_user_id, public_user_id, username) VALUES (?, ?, ?);"""
-        data_tuple = (local_user_id, public_user_id, username)
-        
-        curs.execute(sqlite_insert_query, data_tuple)
-        conn.commit()
-        curs.close
-        conn.close
-        logging.debug("Added new user to database")
-        return "new_user"
+            if id_match is not None:
+                logging.debug("Matching ID found, ignoring")
+                return "User ID already exists"
+
+            logging.debug("User ID did not match an existing user ID, adding")       
+            sqlite_insert_query = "INSERT INTO users (local_user_id, public_user_id, username) VALUES (?, ?, ?);"
+            data_tuple = (local_user_id, public_user_id, username)
+            
+            curs.execute(sqlite_insert_query, data_tuple)
+            logging.debug("Added new user to database")
+            return "User successfully added"
+    except sqlite3.Error as error:
+        logging.error("Failed to execute sqlite statement", error)
+        return "Database error occurred"
+    except Exception as error:
+        logging.error("An error occurred", error)
+        return "An unknown error occurred"
     
 def get_communities():
     try:
@@ -412,25 +412,28 @@ def get_communities():
 
 
 def new_community_db(community_id, community_name):
-    conn = sqlite3.connect('users.db')
-    curs = conn.cursor()
+    try:
+        with sqlite3.connect('users.db') as conn:
+            curs = conn.cursor()
 
-    #search db to see if community exists in DB already
-    curs.execute('''SELECT community_id FROM communities WHERE community_id=?''', (community_id,))
-    id_match = curs.fetchone()
+            #search db to see if community exists in DB already
+            curs.execute('SELECT community_id FROM communities WHERE community_id=?', (community_id,))
+            id_match = curs.fetchone()
 
-    if id_match is not None:
-        logging.debug("Matching community ID found, ignoring")
-        return "duplicate"
-    
-    if id_match is None:
-        logging.debug("community ID did not match an existing community ID, adding")       
-        sqlite_insert_query = """INSERT INTO communities (community_id, community_name) VALUES (?, ?);"""
-        data_tuple = (community_id, community_name)
-        
-        curs.execute(sqlite_insert_query, data_tuple)
-        conn.commit()
-        curs.close
-        conn.close
-        logging.debug("Added new community to database")
-        return "testing"
+            if id_match is not None:
+                logging.debug("Matching community ID found, ignoring")
+                return "Community ID already exists"
+
+            logging.debug("community ID did not match an existing community ID, adding")       
+            sqlite_insert_query = "INSERT INTO communities (community_id, community_name) VALUES (?, ?);"
+            data_tuple = (community_id, community_name)
+            
+            curs.execute(sqlite_insert_query, data_tuple)
+            logging.debug("Added new community to database")
+            return "testing"
+    except sqlite3.Error as error:
+        logging.error("Failed to execute sqlite statement", error)
+        return "Database error occurred"
+    except Exception as error:
+        logging.error("An error occurred", error)
+        return "An unknown error occurred"
