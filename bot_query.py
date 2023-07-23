@@ -5,11 +5,10 @@ import logging
 import sqlite3
 
 ## TODO
-## - email validation
 ## - finish polls (closure)
 
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
 def login():
     global lemmy
@@ -329,8 +328,8 @@ def get_new_users():
             # Check if the email is from a known spam domain     
             if is_spam_email(email, spam_domains):
                 logging.info(f"User {username} tried to register with a spam email: {email}")
-                for admin_id in settings.ADMIN_IDS:
-                    lemmy.private_message.create("Hello, new user " + username + " with ID " + str(public_user_id) + " has signed up with a temporary/spam email address. Please manually review before approving.", admin_id)
+                lemmy.private_message.create("Hello, new user " + username + " with ID " + str(public_user_id) + " has signed up with a temporary/spam email address. Please manually review before approving.", 2)
+                lemmy.private_message.create("Hello, new user " + username + " with ID " + str(public_user_id) + " has signed up with a temporary/spam email address. Please manually review before approving.", 16340)
         continue
 
 def update_registration_db(local_user_id, username, public_user_id, email):
@@ -364,8 +363,7 @@ def get_communities():
     try:
         communities = lemmy.community.list(limit=10, page=1, sort=SortType.New, type_=ListingType.Local)
         local_comm = communities
-        print(communities)
-        print(local_comm)
+
     except:
         logging.info("Error with connection, retrying...")
         login()
