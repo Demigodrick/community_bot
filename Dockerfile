@@ -1,4 +1,4 @@
-FROM python:3
+FROM python:3-slim
 RUN python3 -m venv /opt/venv
 COPY requirements.txt .
 COPY bot_query.py .

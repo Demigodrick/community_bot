@@ -18,98 +18,90 @@ def login():
 
     return lemmy
 
-def check_vote_db():
-    conn = sqlite3.connect('vote.db')
+def create_table(conn, table_name, table_definition):
     curs = conn.cursor()
-
-    #check for votes table or create
-    curs.execute(''' SELECT count(name) FROM sqlite_master WHERE type='table' AND name='votes' ''')
-
-    if curs.fetchone()[0]==1:
-        logging.debug("votes table exists, moving on")
-        
-    else:
-        curs.execute('''CREATE TABLE IF NOT EXISTS votes (vote_id INT, username TEXT, vote_result TEXT)''')
-        conn.commit
-        logging.debug("created votes table")
-    
-    #check for polls table or create    
-    curs.execute(''' SELECT count(name) FROM sqlite_master WHERE type='table' AND name='polls' ''')
-
-    if curs.fetchone()[0]==1:
-        logging.debug("polls table exists, moving on")
-        
-    else:
-        curs.execute('''CREATE TABLE IF NOT EXISTS polls (poll_id INT, poll_name TEST, username TEXT, open TEXT)''')
-        conn.commit
-        logging.debug("created polls table")
-
-    
-    curs.close
-    conn.close    
-    return
-   
-def add_vote_to_db(pm_username, vote_id, vote_response):
-    conn = sqlite3.connect('vote.db')
-    curs = conn.cursor()
-    #check vote_id(poll_id in polls table) is valid
-    poll_id = int(vote_id)
-
-
-    curs.execute('''SELECT poll_id, poll_name FROM polls WHERE poll_id=?''', (poll_id,))
-    check_valid = curs.fetchone()
-    if check_valid is None:
-        logging.debug("Submitted vote_id did not match a valid poll_id")
-        return "notvalid"
-
-    poll_name = check_valid[1]   
-
-    #check if vote response is already recorded for this user/vote id
-    curs.execute('''SELECT vote_id, username FROM votes WHERE vote_id=? AND username=?''',(vote_id, pm_username))
-
-    row = curs.fetchone()
-    if row is not None:
-        if row:
-            logging.debug("Matching vote found")
-            return "duplicate"
-
-        
-            
-    
-    sqlite_insert_query = """INSERT INTO votes (vote_id, username, vote_result) VALUES (?, ?, ?);"""
-    data_tuple = (vote_id, pm_username, vote_response)
-        
-    curs.execute(sqlite_insert_query, data_tuple)
+    curs.execute(f'''CREATE TABLE IF NOT EXISTS {table_name} {table_definition}''')
     conn.commit()
-    curs.close
-    conn.close
-    logging.debug("Added vote to database")
-    return poll_name
+    logging.debug(f"Checked/created {table_name} table")
+
+def check_dbs():
+    try:
+        with sqlite3.connect('vote.db') as conn:
+            # Create or check votes table
+            create_table(conn, 'votes', '(vote_id INT, username TEXT, vote_result TEXT)')
+
+            # Create or check polls table
+            create_table(conn, 'polls', '(poll_id INT, poll_name TEXT, username TEXT, open TEXT)')
+
+        with sqlite3.connect('users.db') as conn:
+            #Create or check users table
+            create_table(conn, 'users', '(local_user_id INT, public_user_id INT, username TEXT, has_posted INT, has_had_pm INT, email TEXT)')
+
+            #Create or check communities table
+            create_table(conn, 'communities', '(community_id INT, community_name TEXT)')
+
+    except sqlite3.Error as e:
+        logging.error(f"Database error: {e}")
+    except Exception as e:
+        logging.error(f"Exception in _query: {e}")
+  
+def connect_to_vote_db():
+    return sqlite3.connect('vote.db')
+
+def execute_sql_query(connection, query, params=()):
+    with connection:
+        curs = connection.cursor()
+        curs.execute(query, params)
+        return curs.fetchone()
+
+def add_vote_to_db(pm_username, vote_id, vote_response):
+    try:
+        with connect_to_vote_db() as conn:
+            # Check vote_id (poll_id in polls table) is valid
+            poll_query = '''SELECT poll_id, poll_name FROM polls WHERE poll_id=?'''
+            check_valid = execute_sql_query(conn, poll_query, (vote_id,))
+
+            if check_valid is None:
+                logging.debug("Submitted vote_id did not match a valid poll_id")
+                return "notvalid"
+            poll_name = check_valid[1]
+
+            # Check if vote response is already recorded for this user/vote id
+            vote_query = '''SELECT vote_id, username FROM votes WHERE vote_id=? AND username=?'''
+            row = execute_sql_query(conn, vote_query, (vote_id, pm_username))
+
+            if row:
+                logging.debug("Matching vote found")
+                return "duplicate"
+
+            # If no duplicate votes, add new vote
+            sqlite_insert_query = """INSERT INTO votes (vote_id, username, vote_result) VALUES (?, ?, ?);"""
+            data_tuple = (vote_id, pm_username, vote_response)
+            execute_sql_query(conn, sqlite_insert_query, data_tuple)
+
+            logging.debug("Added vote to database")
+            return poll_name
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+        return "error"
 
 def create_poll(poll_name, pm_username): 
-    conn = sqlite3.connect('vote.db')
-    curs = conn.cursor()
+    try:
+        with connect_to_vote_db() as conn:
+            isopen = True
+            data_tuple = (poll_name, pm_username, isopen)
+            sqlite_insert_query = """INSERT INTO polls (poll_name, username, open) VALUES (?, ?, ?);"""
+            execute_sql_query(conn, sqlite_insert_query, data_tuple)
 
-    #find last row of poll table to get ID number
-    curs.execute("SELECT * FROM polls ORDER BY poll_id DESC LIMIT 1")
-    result = curs.fetchone()
-    if result is not None:
-        poll_id = int(result[0]) + 1
-    else:
-        poll_id = 1
-    
-    isopen = True
+            # Get the ID of the poll just created
+            poll_id_query = "SELECT last_insert_rowid()"
+            poll_id = execute_sql_query(conn, poll_id_query)[0]
 
-    data_tuple = (poll_id, poll_name, pm_username, isopen)
-    sqlite_insert_query = """INSERT INTO polls (poll_id, poll_name, username, open) VALUES (?, ?, ?, ?);"""
-    curs.execute(sqlite_insert_query, data_tuple)
-    conn.commit()
-    curs.close
-    conn.close
-    logging.debug("Added poll to database with ID number " + str(poll_id))
-    return poll_id
-
-
+            logging.debug("Added poll to database with ID number " + str(poll_id))
+            return poll_id
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+        return "error"
 
 def check_pms():
     try:
@@ -296,36 +288,20 @@ def check_pms():
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
-
-def check_user_db():
-    try:
-        with sqlite3.connect('users.db') as conn:
-            curs = conn.cursor()
-
-            # create 'users' table if it doesn't exist
-            curs.execute('''CREATE TABLE IF NOT EXISTS users (
-                                local_user_id INT, 
-                                public_user_id INT, 
-                                username TEXT, 
-                                has_posted INT, 
-                                has_had_pm INT
-                            )''')
-            logging.debug("Checked 'users' table")
-
-            # create 'communities' table if it doesn't exist
-            curs.execute('''CREATE TABLE IF NOT EXISTS communities (
-                                community_id INT, 
-                                community_name TEXT
-                            )''')
-            logging.debug("Checked 'communities' table")
-
-    except sqlite3.Error as error:
-        logging.error("Failed to execute sqlite statement", error)
-    except Exception as error:
-        logging.error("An error occurred", error)
-
+def is_spam_email(email, spam_domains):
+    # Split the email address at '@' and take the second half (i.e., the domain)
+    domain = email.split('@')[1]
+    # Check if the domain is in the list of spam domains
+    return domain in spam_domains
 
 def get_new_users():
+    spam_domains = set()  # Initialize an empty set
+
+    # Read in the list of spam domains from a file
+    with open('disposable_email_blocklist.conf', 'r') as file:
+        for line in file:
+            spam_domains.add(line.strip())  # Add each domain to the set
+
     try:
         output = lemmy.admin.list_applications(unread_only="true")
         new_apps = output['registration_applications']
@@ -335,25 +311,29 @@ def get_new_users():
         return
 
     for output in new_apps:
-
-        #something in here about filtering out email addresses
         local_user_id = output['registration_application']['local_user_id']
         username = output['creator']['name']
-        #email = output['creator_local_user']['email']
+        email = output['creator_local_user']['email']
         public_user_id = output['creator_local_user']['person_id']
-
-        if update_registration_db(local_user_id, username, public_user_id) == "new_user":
+       
+        if update_registration_db(local_user_id, username, public_user_id, email) == "new_user":
             logging.debug("sending new user a pm")
             lemmy.private_message.create("Hey, " + username + ". \n \n # Welcome to Lemmy.zip! \n \n Please take a moment to familiarise yourself with [our Welcome Post](https://lemmy.zip/post/43)." 
-                                                            "This post has all the information you'll need to get started on Lemmy, so please have a good read first! \n \n"
-                                                            "Please also take a look at our rules, they are in the sidebar of this instance. I can send these to you at any time, just send me a message with `#rules`. \n \n"
-                                                            "If you're on a mobile device, you can [tap here](https://m.lemmy.zip) to go straight to our mobile site. \n \n"
-                                                            "Lemmy.zip is 100% funded by user donations, so if you are enjoying your time on Lemmy.zip please [consider donating](https://opencollective.com/lemmyzip).\n \n"
-                                                            "If you'd like more help, please reply to this message with `#help` for a list of things I can help with. \n \n"
-                                                            "I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip) via email to `hello@lemmy.zip`. Beep Boop. ", public_user_id)
+                                                                "This post has all the information you'll need to get started on Lemmy, so please have a good read first! \n \n"
+                                                                "Please also take a look at our rules, they are in the sidebar of this instance. I can send these to you at any time, just send me a message with `#rules`. \n \n"
+                                                                "If you're on a mobile device, you can [tap here](https://m.lemmy.zip) to go straight to our mobile site. \n \n"
+                                                                "Lemmy.zip is 100% funded by user donations, so if you are enjoying your time on Lemmy.zip please [consider donating](https://opencollective.com/lemmyzip).\n \n"
+                                                                "If you'd like more help, please reply to this message with `#help` for a list of things I can help with. \n \n"
+                                                                "I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip) via email to `hello@lemmy.zip`. Beep Boop. ", public_user_id)
+            
+            # Check if the email is from a known spam domain     
+            if is_spam_email(email, spam_domains):
+                logging.info(f"User {username} tried to register with a spam email: {email}")
+                for admin_id in settings.ADMIN_IDS:
+                    lemmy.private_message.create("Hello, new user " + username + " with ID " + str(public_user_id) + " has signed up with a temporary/spam email address. Please manually review before approving.", admin_id)
         continue
 
-def update_registration_db(local_user_id, username, public_user_id):
+def update_registration_db(local_user_id, username, public_user_id, email):
     try:
         with sqlite3.connect('users.db') as conn:
             curs = conn.cursor()
@@ -367,12 +347,12 @@ def update_registration_db(local_user_id, username, public_user_id):
                 return "User ID already exists"
 
             logging.debug("User ID did not match an existing user ID, adding")       
-            sqlite_insert_query = "INSERT INTO users (local_user_id, public_user_id, username) VALUES (?, ?, ?);"
-            data_tuple = (local_user_id, public_user_id, username)
+            sqlite_insert_query = "INSERT INTO users (local_user_id, public_user_id, username, email) VALUES (?, ?, ?, ?);"
+            data_tuple = (local_user_id, public_user_id, username, email)
             
             curs.execute(sqlite_insert_query, data_tuple)
             logging.debug("Added new user to database")
-            return "User successfully added"
+            return "new_user"
     except sqlite3.Error as error:
         logging.error("Failed to execute sqlite statement", error)
         return "Database error occurred"
