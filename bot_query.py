@@ -3,6 +3,7 @@ from pythorhead.types import SortType, ListingType
 from config import settings
 import logging
 import sqlite3
+import time
 
 ## TODO
 ## - finish polls (closure)
@@ -25,14 +26,14 @@ def create_table(conn, table_name, table_definition):
 
 def check_dbs():
     try:
-        with sqlite3.connect('vote.db') as conn:
+        with sqlite3.connect('resources/vote.db') as conn:
             # Create or check votes table
             create_table(conn, 'votes', '(vote_id INT, username TEXT, vote_result TEXT)')
 
             # Create or check polls table
             create_table(conn, 'polls', '(poll_id INT, poll_name TEXT, username TEXT, open TEXT)')
 
-        with sqlite3.connect('users.db') as conn:
+        with sqlite3.connect('resources/users.db') as conn:
             #Create or check users table
             create_table(conn, 'users', '(local_user_id INT, public_user_id INT, username TEXT, has_posted INT, has_had_pm INT, email TEXT)')
 
@@ -45,7 +46,7 @@ def check_dbs():
         logging.error(f"Exception in _query: {e}")
   
 def connect_to_vote_db():
-    return sqlite3.connect('vote.db')
+    return sqlite3.connect('resources/vote.db')
 
 def execute_sql_query(connection, query, params=()):
     with connection:
@@ -297,7 +298,7 @@ def get_new_users():
     spam_domains = set()  # Initialize an empty set
 
     # Read in the list of spam domains from a file
-    with open('disposable_email_blocklist.conf', 'r') as file:
+    with open('resources/disposable_email_blocklist.conf', 'r') as file:
         for line in file:
             spam_domains.add(line.strip())  # Add each domain to the set
 
@@ -334,7 +335,7 @@ def get_new_users():
 
 def update_registration_db(local_user_id, username, public_user_id, email):
     try:
-        with sqlite3.connect('users.db') as conn:
+        with sqlite3.connect('resources/users.db') as conn:
             curs = conn.cursor()
 
             #search db for matching user id
@@ -361,7 +362,7 @@ def update_registration_db(local_user_id, username, public_user_id, email):
     
 def get_communities():
     try:
-        communities = lemmy.community.list(limit=10, page=1, sort=SortType.New, type_=ListingType.Local)
+        communities = lemmy.community.list(limit=5, page=1, sort=SortType.New, type_=ListingType.Local)
         local_comm = communities
 
     except:
@@ -375,6 +376,9 @@ def get_communities():
         
         find_mod = lemmy.community.get(community_id)
         mods = find_mod['moderators']
+
+        #throwing this in here to help stop nginx timeouts causing errors
+        time.sleep(0.5)
 
         for find_mod in mods:
             mod_id = find_mod['moderator']['id']
@@ -391,7 +395,7 @@ def get_communities():
 
 def new_community_db(community_id, community_name):
     try:
-        with sqlite3.connect('users.db') as conn:
+        with sqlite3.connect('resources/users.db') as conn:
             curs = conn.cursor()
 
             #search db to see if community exists in DB already
@@ -408,7 +412,7 @@ def new_community_db(community_id, community_name):
             
             curs.execute(sqlite_insert_query, data_tuple)
             logging.debug("Added new community to database")
-            return "testing"
+            return "community"
     except sqlite3.Error as error:
         logging.error("Failed to execute sqlite statement", error)
         return "Database error occurred"
