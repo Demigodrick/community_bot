@@ -4,6 +4,9 @@ from config import settings
 import logging
 import sqlite3
 import time
+import requests
+import json
+
 
 ## TODO
 ## - finish polls (closure)
@@ -39,6 +42,10 @@ def check_dbs():
 
             #Create or check communities table
             create_table(conn, 'communities', '(community_id INT, community_name TEXT)')
+
+        with sqlite3.connect('resources/games.db') as conn:
+            #create or check bundles table
+            create_table(conn, 'bundles', '(bundle_machine_name TEXT)')
 
     except sqlite3.Error as e:
         logging.error(f"Database error: {e}")
@@ -419,3 +426,46 @@ def new_community_db(community_id, community_name):
     except Exception as error:
         logging.error("An error occurred", error)
         return "An unknown error occurred"
+    
+def humblebundle():
+    response = requests.get("https://www.humblebundle.com/client/bundles")
+    bundles = json.loads(response.text)
+    for bundle in bundles:
+        bundle_url = bundle['url']
+        bundle_name = bundle['bundle_name']
+        bundle_machine_name = bundle['bundle_machine_name']
+
+        if (".com/games" not in bundle_url) and (".com/membership" not in bundle_url):
+            continue
+
+        #add or check bundle in db
+        if add_bundle_to_db(bundle_machine_name) == "added":
+            #add bundle to website
+            community_id = lemmy.discover_community("gamedeals")
+            lemmy.post.create(community_id,name="Humble Bundle: " + bundle_name, url=bundle_url)
+
+
+def connect_to_games_db():
+    return sqlite3.connect('resources/games.db')
+
+def add_bundle_to_db(bundle_machine_name):
+    try:
+        with connect_to_games_db() as conn:
+            # Check if bundble already is in db
+            bundle_query = '''SELECT bundle_machine_name FROM bundles WHERE bundle_machine_name=?'''
+            bundle_match = execute_sql_query(conn, bundle_query, (bundle_machine_name,))
+
+            if bundle_match:
+                return "duplicate"
+
+            logging.debug("New bundle to be added to DB")
+            
+            sqlite_insert_query = """INSERT INTO bundles (bundle_machine_name) VALUES (?);"""
+            data_tuple = (bundle_machine_name,)
+            execute_sql_query(conn, sqlite_insert_query, data_tuple)
+
+            logging.debug("Added bundle to database")
+            return "added"
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+        return "error"
