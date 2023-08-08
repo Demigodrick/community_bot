@@ -6,6 +6,7 @@ import sqlite3
 import time
 import requests
 import json
+import os
 
 
 ## TODO
@@ -34,7 +35,7 @@ def check_dbs():
             create_table(conn, 'votes', '(vote_id INT, username TEXT, vote_result TEXT)')
 
             # Create or check polls table
-            create_table(conn, 'polls', '(poll_id INT, poll_name TEXT, username TEXT, open TEXT)')
+            create_table(conn, 'polls', '(poll_id INTEGER PRIMARY KEY AUTOINCREMENT, poll_name TEXT, username TEXT, open TEXT)')
 
         with sqlite3.connect('resources/users.db') as conn:
             #Create or check users table
@@ -62,7 +63,7 @@ def execute_sql_query(connection, query, params=()):
         return curs.fetchone()
 
 def add_vote_to_db(pm_username, vote_id, vote_response):
-    #try:
+    try:
         with connect_to_vote_db() as conn:
             # Check vote_id (poll_id in polls table) is valid
             poll_query = '''SELECT poll_id, poll_name FROM polls WHERE poll_id=?'''
@@ -94,22 +95,22 @@ def add_vote_to_db(pm_username, vote_id, vote_response):
 
             logging.debug("Added vote to database")
             return poll_name
-    #except Exception as e:
-    #    logging.error(f"An error occurred: {e}")
-    #    return "error"
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+        return "error"
 
 def create_poll(poll_name, pm_username): 
     try:
         with connect_to_vote_db() as conn:
+            isopen = True            
+            data_tuple = (poll_name, pm_username, isopen)
+            sqlite_insert_query = """INSERT INTO polls (poll_name, username, open) VALUES (?, ?, ?);"""
+            execute_sql_query(conn, sqlite_insert_query, data_tuple)
+
             # Get the ID of the poll just created
             poll_id_query = "SELECT last_insert_rowid()"
-            poll_id = execute_sql_query(conn, poll_id_query)[0] + 1
-            isopen = True
-            
-            
-            data_tuple = (poll_id, poll_name, pm_username, isopen)
-            sqlite_insert_query = """INSERT INTO polls (poll_id, poll_name, username, open) VALUES (?, ?, ?, ?);"""
-            execute_sql_query(conn, sqlite_insert_query, data_tuple)
+            poll_id = execute_sql_query(conn, poll_id_query)[0]
+
 
             logging.debug("Added poll to database with ID number " + str(poll_id))
             return poll_id
@@ -353,6 +354,22 @@ def check_pms():
                 lemmy.private_message.create("Hey, " + pm_username + ". There are " + str(yes_votes) + " yes votes and " + str(no_votes) + " no votes on that poll."
                                                                  "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
+                continue
+            else:
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
+
+        if pm_context == "#purgevotes":
+            if user_admin == True:
+               if os.path.exists('resources/vote.db'):
+                    os.remove('resources/vote.db')
+                    check_dbs()
+                    lemmy.private_message.mark_as_read(pm_id, True)
+                    continue
+            else:
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
+        
 
 
         #keep this at the bottom
