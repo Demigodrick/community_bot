@@ -9,7 +9,7 @@ import json
 
 
 ## TODO
-## - finish polls (closure)
+
 
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
@@ -135,6 +135,20 @@ def close_poll(poll_id):
     except Exception as e:
         logging.error(f"An error occurred: {e}")
         return "error"
+    
+def count_votes(poll_id):
+    try:
+        with connect_to_vote_db() as conn:
+            yes_query = "SELECT COUNT(*) FROM votes WHERE vote_result = 'yes' AND vote_id = ?;"
+            no_query = "SELECT COUNT(*) FROM votes WHERE vote_result = 'no' AND vote_id = ?;"
+            yes_count = execute_sql_query(conn, yes_query, (poll_id,))[0]
+            no_count = execute_sql_query(conn, no_query, (poll_id,))[0]
+            return yes_count, no_count
+        
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+        return "error"    
+
 
 def check_pms():
     try:
@@ -177,6 +191,7 @@ def check_pms():
                                                                             "\n\n As an Admin, you also have access to the following commands: \n"
                                                                             "- `#poll` - Create a poll for users to vote on. Give your poll a name, and you will get back an ID number to users so they can vote on your poll. Example usage: `#poll @Vote for best admin` \n"
                                                                             "- `#closepoll` - Close an existing poll using the poll ID number, for example `#closepoll @1`" 
+                                                                            "- `#countpoll` - Get a total of the responses to a poll using a poll ID number, for example `#countpoll @1`"
                                                                             "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
@@ -330,6 +345,15 @@ def check_pms():
                                                                  "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
                     lemmy.private_message.mark_as_read(pm_id, True)
                     continue
+        
+        if pm_context.split(" @")[0] == "#countpoll":
+            if user_admin == True:
+                poll_id = pm_context.split("@")[1]
+                yes_votes, no_votes = count_votes(poll_id)
+                lemmy.private_message.create("Hey, " + pm_username + ". There are " + str(yes_votes) + " yes votes and " + str(no_votes) + " no votes on that poll."
+                                                                 "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+
 
         #keep this at the bottom
         else:
