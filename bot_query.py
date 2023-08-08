@@ -62,7 +62,7 @@ def execute_sql_query(connection, query, params=()):
         return curs.fetchone()
 
 def add_vote_to_db(pm_username, vote_id, vote_response):
-    try:
+    #try:
         with connect_to_vote_db() as conn:
             # Check vote_id (poll_id in polls table) is valid
             poll_query = '''SELECT poll_id, poll_name FROM polls WHERE poll_id=?'''
@@ -71,8 +71,14 @@ def add_vote_to_db(pm_username, vote_id, vote_response):
             if check_valid is None:
                 logging.debug("Submitted vote_id did not match a valid poll_id")
                 return "notvalid"
-            poll_name = check_valid[1]
 
+            #check poll is still open
+            closed_query = '''SELECT poll_id, open FROM polls where poll_id=?'''
+            check_open = execute_sql_query(conn, closed_query, (vote_id,))
+            if check_open[1] == "0":
+                return "closed"
+            
+            poll_name = check_valid[1]
             # Check if vote response is already recorded for this user/vote id
             vote_query = '''SELECT vote_id, username FROM votes WHERE vote_id=? AND username=?'''
             row = execute_sql_query(conn, vote_query, (vote_id, pm_username))
@@ -88,24 +94,44 @@ def add_vote_to_db(pm_username, vote_id, vote_response):
 
             logging.debug("Added vote to database")
             return poll_name
-    except Exception as e:
-        logging.error(f"An error occurred: {e}")
-        return "error"
+    #except Exception as e:
+    #    logging.error(f"An error occurred: {e}")
+    #    return "error"
 
 def create_poll(poll_name, pm_username): 
     try:
         with connect_to_vote_db() as conn:
-            isopen = True
-            data_tuple = (poll_name, pm_username, isopen)
-            sqlite_insert_query = """INSERT INTO polls (poll_name, username, open) VALUES (?, ?, ?);"""
-            execute_sql_query(conn, sqlite_insert_query, data_tuple)
-
             # Get the ID of the poll just created
             poll_id_query = "SELECT last_insert_rowid()"
-            poll_id = execute_sql_query(conn, poll_id_query)[0]
+            poll_id = execute_sql_query(conn, poll_id_query)[0] + 1
+            isopen = True
+            
+            
+            data_tuple = (poll_id, poll_name, pm_username, isopen)
+            sqlite_insert_query = """INSERT INTO polls (poll_id, poll_name, username, open) VALUES (?, ?, ?, ?);"""
+            execute_sql_query(conn, sqlite_insert_query, data_tuple)
 
             logging.debug("Added poll to database with ID number " + str(poll_id))
             return poll_id
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+        return "error"
+    
+def close_poll(poll_id):
+    try:
+        with connect_to_vote_db() as conn:
+            set_open = "0"
+            # Check vote_id (poll_id in polls table) is valid
+            poll_query = '''SELECT poll_id FROM polls WHERE poll_id=?'''
+            check_valid = execute_sql_query(conn, poll_query, (poll_id,))
+
+            if check_valid is None:
+                logging.debug("Submitted vote_id did not match a valid poll_id")
+                return "notvalid"
+            
+            sqlite_update_query = """UPDATE polls SET open = ? WHERE poll_id = ?;"""
+            execute_sql_query(conn, sqlite_update_query, (set_open, poll_id))
+            return "closed"
     except Exception as e:
         logging.error(f"An error occurred: {e}")
         return "error"
@@ -264,6 +290,12 @@ def check_pms():
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
 
+            if db_response == "closed":
+                lemmy.private_message.create("Hey, " + pm_username + ". Sorry, it appears the poll you're trying to vote on is now closed. Please double check the vote ID and try again." 
+                                                                 "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
+
             else:
                 lemmy.private_message.create("Hey, " + pm_username + ". Your vote has been counted on the '" + db_response + "' poll . Thank you for voting! " 
                                                                  "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
@@ -278,11 +310,26 @@ def check_pms():
                 lemmy.private_message.create("Hey, " + pm_username + ". Your poll has been created with ID number " + str(poll_id) + ". You can now give this ID to people and they can now cast a vote using the `#vote` operator." 
                                                                  "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
+                continue
             else:
                 lemmy.private_message.create("Hey, " + pm_username + ". You need to be an instance admin in order to create a poll."
                                                                  "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
-
+                continue
+        
+        if pm_context.split(" @")[0] == "#closepoll":
+            if user_admin == True:
+                poll_id = pm_context.split("@")[1]
+                if close_poll(poll_id) == "closed":
+                    lemmy.private_message.create("Hey, " + pm_username + ". Your poll (ID = " + poll_id + ") has been closed"
+                                                                 "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                    lemmy.private_message.mark_as_read(pm_id, True)
+                    continue
+                else:
+                    lemmy.private_message.create("Hey, " + pm_username + ". I couldn't close that poll due to an error."
+                                                                 "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                    lemmy.private_message.mark_as_read(pm_id, True)
+                    continue
 
         #keep this at the bottom
         else:
@@ -336,8 +383,8 @@ def get_new_users():
             # Check if the email is from a known spam domain     
             if is_spam_email(email, spam_domains):
                 logging.info(f"User {username} tried to register with a spam email: {email}")
-                lemmy.private_message.create("Hello, new user " + username + " with ID " + str(public_user_id) + " has signed up with a temporary/spam email address. Please manually review before approving.", 2)
-                lemmy.private_message.create("Hello, new user " + username + " with ID " + str(public_user_id) + " has signed up with a temporary/spam email address. Please manually review before approving.", 16340)
+                lemmy.private_message.create("Hello, new user " + username + " with ID " + str(public_user_id) + " has signed up with a temporary/spam email address (" + {email} + "). Please manually review before approving.", 2)
+                lemmy.private_message.create("Hello, new user " + username + " with ID " + str(public_user_id) + " has signed up with a temporary/spam email address (" + {email} + "). Please manually review before approving.", 16340)
         continue
 
 def update_registration_db(local_user_id, username, public_user_id, email):
@@ -394,7 +441,7 @@ def get_communities():
         if new_community_db(community_id, community_name) == "community":
             lemmy.private_message.create("Hey, " + mod_name + ". Congratulations on creating your community, [" + community_name + "](/c/"+community_name+"@lemmy.zip). \n Here are some tips for getting users to subscribe to your new community!\n"
                                                                 "- Try posting a link to your community at [New Communities](/c/newcommunities@lemmy.world).\n"
-                                                                "- Ensure your community has some content. Users are more likely to subscribe if content is already available.(5 to 10 posts is usually a good start)\n"
+                                                                "- Ensure your community has some content. Users are more likely to subscribe if content is already available. (5 to 10 posts is usually a good start)\n"
                                                                 "- Consistency is key - you need to post consistently and respond to others to keep engagement with your new community up.\n\n"
                                                                 "I hope this helps!"
                                                                 "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", mod_id)    
