@@ -7,6 +7,7 @@ import time
 import requests
 import json
 import os
+import feedparser
 
 import smtplib
 from email.mime.text import MIMEText
@@ -51,6 +52,9 @@ def check_dbs():
         with sqlite3.connect('resources/games.db') as conn:
             #create or check bundles table
             create_table(conn, 'bundles', '(bundle_machine_name TEXT)')
+
+            #create or check game deals table   
+            create_table(conn, 'deals', '(deal_name TEXT, deal_date TEXT)')
 
     except sqlite3.Error as e:
         logging.error(f"Database error: {e}")
@@ -573,7 +577,7 @@ def welcome_email(email):
     message['Subject'] = "Thanks for signing up to Lemmy.zip!"
 
     #body
-    body = "Thanks for signing up to Lemmy.zip.\n\n We've received your application and one of our Admins will manually verify your account shortly.\n\n Lemmy.zip prides itself on being a welcoming and inclusive Lemmy instance, and to help reduce spam we manually verify all accounts.\n\n Once your account is accepted, you will recieve another email from us confirming this and then you'll be able to log in to your account using the details you set up.\n\n If you've not recieved an email confirming you have been accepted within a couple of hours, please email hello@lemmy.zip with your username, and we can look into the issue further. Please be patient with us!\n\n Thanks again for signing up to Lemmy.zip, we're excited to welcome you to the Fediverse :)\n\n PS - Once you've logged in, look out for a message from ZippyBot with a guide on how to get started!"
+    body = "Thanks for signing up to Lemmy.zip.\n\n We've received your application and one of our Admins will manually verify your account shortly. \n\n Lemmy.zip prides itself on being a welcoming and inclusive Lemmy instance, and to help reduce spam we manually verify all accounts.\n\n Once your account is accepted, you will receive another email from us confirming this and then you'll be able to log in to your account using the details you set up. You won't be able to login until you've received this confirmation email.\n\n If you've not received an email confirming you have been accepted within a couple of hours, please email hello@lemmy.zip with your username, and we can look into the issue further. Please be patient with us!\n\n Thanks again for signing up to Lemmy.zip, we're excited to welcome you to the Fediverse :)\n\n PS - Once you've logged in, look out for a message from ZippyBot with a guide on how to get started!"
     message.attach(MIMEText(body, 'plain'))
 
     #initialise SMTP server
@@ -588,4 +592,45 @@ def welcome_email(email):
         server.quit
 
 
- 
+def game_deals():
+    # URL of the RSS feed
+    rss_url = "https://isthereanydeal.com/rss/specials/"
+
+    # Parse the RSS feed
+    feed = feedparser.parse(rss_url)
+    
+    # Loop through the entries in the feed
+    for entry in feed.entries[:10]:
+        if "humblebundle.com" not in entry.link and "[voucher]" not in entry.title:
+            deal_title = entry.title
+            deal_published = entry.published
+            deal_link = entry.link
+
+            if add_deal_to_db(deal_title, deal_published) == "added":
+                #add bundle to website
+                community_id = lemmy.discover_community("gamedeals")
+                lemmy.post.create(community_id,name="Game Deal: " + deal_title, url=deal_link)
+
+
+
+def add_deal_to_db(deal_title, deal_published):            
+    try:
+        with connect_to_games_db() as conn:
+            # Check if bundble already is in db
+            deal_query = '''SELECT deal_name, deal_date FROM deals WHERE deal_name=? AND deal_date=?'''
+            deal_match = execute_sql_query(conn, deal_query, (deal_title,deal_published,))
+
+            if deal_match:
+                return "duplicate"
+
+            logging.debug("New deal to be added to DB")
+            
+            sqlite_insert_query = """INSERT INTO deals (deal_name, deal_date) VALUES (?,?);"""
+            data_tuple = (deal_title, deal_published,)
+            execute_sql_query(conn, sqlite_insert_query, data_tuple)
+
+            logging.debug("Added deal to database")
+            return "added"
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+        return "error"
