@@ -8,6 +8,10 @@ import requests
 import json
 import os
 
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+
 
 ## TODO
 
@@ -32,7 +36,7 @@ def check_dbs():
     try:
         with sqlite3.connect('resources/vote.db') as conn:
             # Create or check votes table
-            create_table(conn, 'votes', '(vote_id INT, username TEXT, vote_result TEXT)')
+            create_table(conn, 'votes', '(vote_id INT, username TEXT, vote_result TEXT, account_age TEXT)')
 
             # Create or check polls table
             create_table(conn, 'polls', '(poll_id INTEGER PRIMARY KEY AUTOINCREMENT, poll_name TEXT, username TEXT, open TEXT)')
@@ -62,7 +66,7 @@ def execute_sql_query(connection, query, params=()):
         curs.execute(query, params)
         return curs.fetchone()
 
-def add_vote_to_db(pm_username, vote_id, vote_response):
+def add_vote_to_db(pm_username, vote_id, vote_response, pm_account_age):
     try:
         with connect_to_vote_db() as conn:
             # Check vote_id (poll_id in polls table) is valid
@@ -89,8 +93,8 @@ def add_vote_to_db(pm_username, vote_id, vote_response):
                 return "duplicate"
 
             # If no duplicate votes, add new vote
-            sqlite_insert_query = """INSERT INTO votes (vote_id, username, vote_result) VALUES (?, ?, ?);"""
-            data_tuple = (vote_id, pm_username, vote_response)
+            sqlite_insert_query = """INSERT INTO votes (vote_id, username, vote_result, account_age) VALUES (?, ?, ?, ?);"""
+            data_tuple = (vote_id, pm_username, vote_response, pm_account_age)
             execute_sql_query(conn, sqlite_insert_query, data_tuple)
 
             logging.debug("Added vote to database")
@@ -166,7 +170,8 @@ def check_pms():
         pm_username = pm['creator']['name']
         pm_context = pm['private_message']['content']
         pm_id = pm['private_message']['id']
-
+        pm_account_age = pm['creator']['published']
+    
         output = lemmy.user.get(pm_sender)
         user_score = output['person_view']['counts']['comment_score']
         user_local = output['person_view']['person']['local']
@@ -184,14 +189,14 @@ def check_pms():
             if user_admin == True:
                 lemmy.private_message.create("Hey, " + pm_username + ". These are the commands I currently know:" + "\n\n "
                                                                             "- `#help` - See this message. \n "
-                                                                            "- `#rules` - See the current instance rules."
+                                                                            "- `#rules` - See the current instance rules. \n"
                                                                             "- `#score` - See your user score. \n "
                                                                             "- `#create` - Create a new community. Use @ to specify the name of the community you want to create, for example `#create @bot_community`. \n"
-                                                                            "- `#vote` - Vote on an active poll. You'll need to have a vote ID number. An example vote would be `#vote @1 @yes` or `#vote @1 @no`.\n" 
+                                                                            "- `#vote` - Vote on an active poll. You'll need to have a vote ID number. An example vote would be `#vote 1 yes` or `#vote 1 no`.\n" 
                                                                             "- `#credits` - See who spent their time making this bot work!"
                                                                             "\n\n As an Admin, you also have access to the following commands: \n"
                                                                             "- `#poll` - Create a poll for users to vote on. Give your poll a name, and you will get back an ID number to users so they can vote on your poll. Example usage: `#poll @Vote for best admin` \n"
-                                                                            "- `#closepoll` - Close an existing poll using the poll ID number, for example `#closepoll @1`" 
+                                                                            "- `#closepoll` - Close an existing poll using the poll ID number, for example `#closepoll @1`\n" 
                                                                             "- `#countpoll` - Get a total of the responses to a poll using a poll ID number, for example `#countpoll @1`"
                                                                             "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
@@ -199,10 +204,10 @@ def check_pms():
             else:
                 lemmy.private_message.create("Hey, " + pm_username + ". These are the commands I currently know:" + "\n\n "
                                                                             "- `#help` - See this message. \n "
-                                                                            "- `#rules` - See the current instance rules."
+                                                                            "- `#rules` - See the current instance rules. \n"
                                                                             "- `#score` - See your user score. \n "
                                                                             "- `#create` - Create a new community. Use @ to specify the name of the community you want to create, for example `#create @bot_community`. \n"
-                                                                            "- `#vote` - Vote on an active poll. You'll need to have a vote ID number. An example vote would be `#vote @1 @yes` or `#vote @1 @no`.\n" 
+                                                                            "- `#vote` - Vote on an active poll. You'll need to have a vote ID number. An example vote would be `#vote 1 yes` or `#vote 1 no`.\n" 
                                                                             "- `#credits` - See who spent their time making this bot work!"
                                                                             "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
@@ -288,11 +293,11 @@ def check_pms():
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
-        if pm_context.split(" @")[0] == "#vote":
-            vote_id = pm_context.split("@")[1]
-            vote_response = pm_context.split("@")[2]
+        if pm_context.split(" ")[0] == "#vote":
+            vote_id = pm_context.split(" ")[1]
+            vote_response = pm_context.split(" ")[2]
 
-            db_response = add_vote_to_db(pm_username,vote_id,vote_response) 
+            db_response = add_vote_to_db(pm_username,vote_id,vote_response,pm_account_age) 
 
             if db_response == "duplicate":
                 lemmy.private_message.create("Hey, " + pm_username + ". Oops! It looks like you've already voted on this poll. Votes can only be counted once. " 
@@ -313,7 +318,7 @@ def check_pms():
                 continue
 
             else:
-                lemmy.private_message.create("Hey, " + pm_username + ". Your vote has been counted on the '" + db_response + "' poll . Thank you for voting! " 
+                lemmy.private_message.create("Hey, " + pm_username + ". Your vote has been counted on the '" + db_response + "' poll. Thank you for voting! " 
                                                                  "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
@@ -369,8 +374,6 @@ def check_pms():
             else:
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
-        
-
 
         #keep this at the bottom
         else:
@@ -425,7 +428,11 @@ def get_new_users():
             if is_spam_email(email, spam_domains):
                 logging.info(f"User {username} tried to register with a spam email: {email}")
                 lemmy.private_message.create("Hello, new user " + username + " with ID " + str(public_user_id) + " has signed up with a temporary/spam email address (" + {email} + "). Please manually review before approving.", 2)
-                lemmy.private_message.create("Hello, new user " + username + " with ID " + str(public_user_id) + " has signed up with a temporary/spam email address (" + {email} + "). Please manually review before approving.", 16340)
+                lemmy.private_message.create("Hello, new user " + username + " with ID " + str(public_user_id) + " has signed up with a temporary/spam email address (" + {email} + "). Please manually review before approving.", 16340)   
+
+            if settings.EMAIL_FUNCTION == True:    
+                welcome_email(email)
+
         continue
 
 def update_registration_db(local_user_id, username, public_user_id, email):
@@ -557,3 +564,28 @@ def add_bundle_to_db(bundle_machine_name):
     except Exception as e:
         logging.error(f"An error occurred: {e}")
         return "error"
+    
+
+def welcome_email(email):
+    message = MIMEMultipart()
+    message['From'] = settings.SENDER_EMAIL
+    message['To'] = email
+    message['Subject'] = "Thanks for signing up to Lemmy.zip!"
+
+    #body
+    body = "Thanks for signing up to Lemmy.zip.\n\n We've received your application and one of our Admins will manually verify your account shortly.\n\n Lemmy.zip prides itself on being a welcoming and inclusive Lemmy instance, and to help reduce spam we manually verify all accounts.\n\n Once your account is accepted, you will recieve another email from us confirming this and then you'll be able to log in to your account using the details you set up.\n\n If you've not recieved an email confirming you have been accepted within a couple of hours, please email hello@lemmy.zip with your username, and we can look into the issue further. Please be patient with us!\n\n Thanks again for signing up to Lemmy.zip, we're excited to welcome you to the Fediverse :)\n\n PS - Once you've logged in, look out for a message from ZippyBot with a guide on how to get started!"
+    message.attach(MIMEText(body, 'plain'))
+
+    #initialise SMTP server
+    try:
+        server = smtplib.SMTP(settings.SMTP_SERVER, settings.SMTP_PORT)
+        server.starttls()
+        server.login(settings.SENDER_EMAIL, settings.SENDER_PASSWORD)
+        server.sendmail(settings.SENDER_EMAIL, email, message.as_string())
+    except Exception as e:
+        logging.error("Error: Unable to send email.", str(e))
+    finally:
+        server.quit
+
+
+ 

@@ -8,6 +8,12 @@ class Settings(BaseSettings):
     INSTANCE: str
     SCORE: int
     LOCAL: bool
+    EMAIL_FUNCTION: bool
+    SMTP_SERVER: str
+    SMTP_PORT: int
+    SENDER_EMAIL: str
+    SENDER_PASSWORD: str
+
 
     class Config:
         env_file = ".env"
