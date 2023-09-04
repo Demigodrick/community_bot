@@ -12,11 +12,7 @@ import feedparser
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
-
-
-## TODO
-
-
+from email.mime.image import MIMEImage
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
 
@@ -576,11 +572,31 @@ def welcome_email(email):
     message['To'] = email
     message['Subject'] = "Thanks for signing up to Lemmy.zip!"
 
+    #use this for a simple text email, uncomment below:
     #body
-    body = "Thanks for signing up to Lemmy.zip.\n\n We've received your application and one of our Admins will manually verify your account shortly. \n\n Lemmy.zip prides itself on being a welcoming and inclusive Lemmy instance, and to help reduce spam we manually verify all accounts.\n\n Once your account is accepted, you will receive another email from us confirming this and then you'll be able to log in to your account using the details you set up. You won't be able to login until you've received this confirmation email.\n\n If you've not received an email confirming you have been accepted within a couple of hours, please email hello@lemmy.zip with your username, and we can look into the issue further. Please be patient with us!\n\n Thanks again for signing up to Lemmy.zip, we're excited to welcome you to the Fediverse :)\n\n PS - Once you've logged in, look out for a message from ZippyBot with a guide on how to get started!"
-    message.attach(MIMEText(body, 'plain'))
+    #body = "Thanks for signing up to Lemmy.zip.\n\n We've received your application and one of our Admins will manually verify your account shortly. \n\n Lemmy.zip prides itself on being a welcoming and inclusive Lemmy instance, and to help reduce spam we manually verify all accounts.\n\n Once your account is accepted, you will receive another email from us confirming this and then you'll be able to log in to your account using the details you set up. You won't be able to login until you've received this confirmation email.\n\n If you've not received an email confirming you have been accepted within a couple of hours, please email hello@lemmy.zip with your username, and we can look into the issue further. Please be patient with us!\n\n Thanks again for signing up to Lemmy.zip, we're excited to welcome you to the Fediverse :)\n\n PS - Once you've logged in, look out for a message from ZippyBot with a guide on how to get started!"
+    #message.attach(MIMEText(body, 'plain'))
 
-    #initialise SMTP server
+    #use this for sending a HTML email i.e. with pictures and colours.
+    #html email - resources to be saved in the "resources" folder
+    with open('resources/index.html', 'r', encoding='utf-8') as html_file:
+        html_content = html_file.read()
+    # Attach the HTML content to the email
+    message.attach(MIMEText(html_content, 'html'))
+
+    # Attach the image as an inline attachment
+    with open('resources/images/image-1.png', 'rb') as image_file:
+        image = MIMEImage(image_file.read())
+        #use content ids and change to img tag in html to match
+        image.add_header('Content-ID', '<image-1>') 
+        message.attach(image)
+
+    with open('resources/images/image-2.png', 'rb') as image_file:
+        image = MIMEImage(image_file.read())
+        image.add_header('Content-ID', '<image-2>')
+        message.attach(image)
+
+    #initialise SMTP server - keep from here for either email type.
     try:
         server = smtplib.SMTP(settings.SMTP_SERVER, settings.SMTP_PORT)
         server.starttls()

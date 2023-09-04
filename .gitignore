@@ -9,3 +9,6 @@ database.sqlite
 **.env
 save.file
 *.db
+resources/index.html
+resources/images/image-2.png
+resources/images/image-1.png
