@@ -13,6 +13,8 @@ class Settings(BaseSettings):
     SMTP_PORT: int
     SENDER_EMAIL: str
     SENDER_PASSWORD: str
+    SURVEY_CODE: str
+    SLUR_ENABLED: bool
 
 
     class Config:

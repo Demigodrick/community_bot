@@ -8,6 +8,7 @@ import requests
 import json
 import os
 import feedparser
+import re
 
 import smtplib
 from email.mime.text import MIMEText
@@ -51,6 +52,15 @@ def check_dbs():
 
             #create or check game deals table   
             create_table(conn, 'deals', '(deal_name TEXT, deal_date TEXT)')
+
+        with sqlite3.connect('resources/mod_actions.db') as conn:
+            #create or check new posts table
+            create_table(conn, 'new_posts', '(post_id INT, poster_id INT, mod_action STR)')
+
+            #create or check new comments table
+            create_table(conn, 'new_comments', '(comment_id INT, comment_poster INT, mod_action STR)')
+
+
 
     except sqlite3.Error as e:
         logging.error(f"Database error: {e}")
@@ -197,7 +207,8 @@ def check_pms():
                                                                             "\n\n As an Admin, you also have access to the following commands: \n"
                                                                             "- `#poll` - Create a poll for users to vote on. Give your poll a name, and you will get back an ID number to users so they can vote on your poll. Example usage: `#poll @Vote for best admin` \n"
                                                                             "- `#closepoll` - Close an existing poll using the poll ID number, for example `#closepoll @1`\n" 
-                                                                            "- `#countpoll` - Get a total of the responses to a poll using a poll ID number, for example `#countpoll @1`"
+                                                                            "- `#countpoll` - Get a total of the responses to a poll using a poll ID number, for example `#countpoll @1` \n"
+                                                                            "- `#takeover` - Add a user as a mod to an existing community. Command is `#takeover` followed by these identifiers in this order: `-community_name` then `-user_id` (use `-self` here if you want to apply this to yourself) \n"
                                                                             "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
@@ -253,6 +264,13 @@ def check_pms():
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
+        if pm_context == "#feedback":
+            lemmy.private_message.create("Hey, " + pm_username + ". The access code for the feedback survey is `" + settings.SURVEY_CODE + "`. \n"
+                                                                    "You can access the survey by [clicking here](https://feedback.lemmy.zip) and selecting the available survey. \n\n"
+                                                                "I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+            lemmy.private_message.mark_as_read(pm_id, True)
+            continue
+
 
         if pm_context.split(" @")[0] == "#create":
             community_name = pm_context.split("@")[1]
@@ -293,6 +311,28 @@ def check_pms():
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
+        if pm_context.split(" -")[0] == "#takeover":
+            if user_admin == True:
+                community_name = pm_context.split("-")[1]
+                user_id = pm_context.split("-")[2]
+                
+                if user_id == "self":
+                    user_id = pm_id
+
+                check_community = lemmy.discover_community(community_name)
+                print (community_name)
+                print (check_community)
+
+                if check_community is None:
+                    lemmy.private_message.create("Hey, " + pm_username + ". Sorry, I can't find the community you've requested.", pm_sender)
+                    lemmy.private_message.mark_as_read(pm_id, True)
+                    continue
+                
+                lemmy.community.add_mod_to_community(True, community_id, user_id)
+                lemmy.private_message.create("Confirmation: " + community_name + "(" + community_id + ") has been taken over by user id + " + user_id, pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
+   
         if pm_context.split(" ")[0] == "#vote":
             vote_id = pm_context.split(" ")[1]
             vote_response = pm_context.split(" ")[2]
@@ -364,6 +404,11 @@ def check_pms():
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
 
+        #broadcast messages
+        #if pm_context.split(" ")[0] == "#broadcast":
+        #    if user_admin == True:
+                
+
         if pm_context == "#purgevotes":
             if user_admin == True:
                if os.path.exists('resources/vote.db'):
@@ -374,6 +419,14 @@ def check_pms():
             else:
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
+
+        if pm_context == "#purgeadminactions":
+            if user_admin == True:
+                if os.path.exists('resources/mod_actions.db'):
+                    os.remove('resources/mod_actions.db')
+                    check_dbs()
+                    lemmy.private_message.mark_as_read(pm_id, True)
+                    continue
 
         #keep this at the bottom
         else:
@@ -389,6 +442,7 @@ def check_pms():
 def is_spam_email(email, spam_domains):
     # Split the email address at '@' and take the second half (i.e., the domain)
     domain = email.split('@')[1]
+    logging.info("Checking spam email with domain: " + domain)
     # Check if the domain is in the list of spam domains
     return domain in spam_domains
 
@@ -416,19 +470,21 @@ def get_new_users():
        
         if update_registration_db(local_user_id, username, public_user_id, email) == "new_user":
             logging.debug("sending new user a pm")
-            lemmy.private_message.create("Hey, " + username + ". \n \n # Welcome to Lemmy.zip! \n \n Please take a moment to familiarise yourself with [our Welcome Post](https://lemmy.zip/post/43)." 
+            lemmy.private_message.create("Hey, " + username + ". \n \n # Welcome to Lemmy.zip! \n \n Please take a moment to familiarise yourself with [our Welcome Post](https://lemmy.zip/post/43). (Text that looks like this is a clickable link!)" 
                                                                 "This post has all the information you'll need to get started on Lemmy, so please have a good read first! \n \n"
-                                                                "Please also take a look at our rules, they are in the sidebar of this instance. I can send these to you at any time, just send me a message with `#rules`. \n \n"
+                                                                "Please also take a look at our rules, they are in the sidebar of this instance. I can send these to you at any time, just reply to this message or send me a new message with `#rules`. \n \n"
                                                                 "If you're on a mobile device, you can [tap here](https://m.lemmy.zip) to go straight to our mobile site. \n \n"
                                                                 "Lemmy.zip is 100% funded by user donations, so if you are enjoying your time on Lemmy.zip please [consider donating](https://opencollective.com/lemmyzip).\n \n"
+                                                                "Want to change the theme of the site? You can go to your [profile settings](https://lemmy.zip/settings) (or click the dropdown by your username and select Settings) and scroll down to theme. You'll find a list of themes you can try out and see which one you like the most! \n \n"
+                                                                "You can also set a Display Name that is different from your account username by updating the Display Name field. By default, your Display Name will show up to other users as `@your_username`, but by updating this field it will become whatever you want it to be! \n \n"
                                                                 "If you'd like more help, please reply to this message with `#help` for a list of things I can help with. \n \n"
                                                                 "I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip) via email to `hello@lemmy.zip`. Beep Boop. ", public_user_id)
             
             # Check if the email is from a known spam domain     
             if is_spam_email(email, spam_domains):
-                logging.info(f"User {username} tried to register with a spam email: {email}")
-                lemmy.private_message.create("Hello, new user " + username + " with ID " + str(public_user_id) + " has signed up with a temporary/spam email address (" + {email} + "). Please manually review before approving.", 2)
-                lemmy.private_message.create("Hello, new user " + username + " with ID " + str(public_user_id) + " has signed up with a temporary/spam email address (" + {email} + "). Please manually review before approving.", 16340)   
+                logging.info("User " + username + " tried to register with a spam email: " + email)
+                lemmy.private_message.create("Hello, new user " + username + " with ID " + str(public_user_id) + " has signed up with a temporary/spam email address (" + email + "). Please manually review before approving.", 2)
+                lemmy.private_message.create("Hello, new user " + username + " with ID " + str(public_user_id) + " has signed up with a temporary/spam email address (" + email + "). Please manually review before approving.", 16340)   
 
             if settings.EMAIL_FUNCTION == True:    
                 welcome_email(email)
@@ -602,6 +658,7 @@ def welcome_email(email):
         server.starttls()
         server.login(settings.SENDER_EMAIL, settings.SENDER_PASSWORD)
         server.sendmail(settings.SENDER_EMAIL, email, message.as_string())
+        logging.info("Welcome email sent successfully")
     except Exception as e:
         logging.error("Error: Unable to send email.", str(e))
     finally:
@@ -628,6 +685,34 @@ def game_deals():
                 lemmy.post.create(community_id,name="Game Deal: " + deal_title, url=deal_link)
 
 
+def steam_deals():
+    #url of the RSS Feed
+    rss_url = "http://www.reddit.com/r/steamdeals/new/.rss?sort=new"
+
+    #parse feed
+    feed = feedparser.parse(rss_url)
+
+    #loop through 10 entries
+    for entry in feed.entries[:10]:
+        content_value = entry.content[0]['value']
+        steam_url = re.search(r'https://store.steampowered.com/app/\d+/\w+/', str(content_value))
+        
+        if steam_url:
+            steam_url = steam_url.group()
+        else:
+            logging.info("No store.steampowered.com URL found in the steam deals entry.")
+            add_deal_to_db(deal_title, deal_published)
+            continue
+        
+        deal_published = entry.published
+        deal_title = entry.title
+        
+        if add_deal_to_db(deal_title, deal_published) == "added":
+            community_id = lemmy.discover_community("gamedeals")
+            lemmy.post.create(community_id,name="Steam Deal: " + deal_title, url=steam_url)
+        
+
+
 
 def add_deal_to_db(deal_title, deal_published):            
     try:
@@ -650,3 +735,120 @@ def add_deal_to_db(deal_title, deal_published):
     except Exception as e:
         logging.error(f"An error occurred: {e}")
         return "error"
+    
+def check_comments():
+    recent_comments = lemmy.comment.list(limit=10,type_=ListingType.Local)
+    for comment in recent_comments:
+        comment_id = comment['comment']['id']
+        comment_text = comment['comment']['content']
+        comment_poster = comment['comment']['creator_id']
+
+        #check if it has already been scanned
+        if check_comment_db(comment_id) == "duplicate":
+            continue
+        
+        regex_pattern = r'((f(a|4)g(got|g)?){1,}|ni((g{2,}|q)+|[gq]{2,})[e3r]+(s|z)?|dindu(s?){1,}|mudslime?s?|kikes?|\bspi(c|k)s?\b|\bchinks?|gooks?|\btr(a|@)nn?(y|(i|1|l)es?|ers?)|(tr(a|@)nn?(y|(i|1|l)es?|ers?)){1,}|(towel\s*heads?){1,}|be(a|@|4)ners?|\bjaps?\b|(japs){2,}|\bcoons?\b|(coons?){2,}|\bpakis?\b|(pakis?){2,}|(porch\s?monkey){1,}|\bching\s?chong\b|(ching\s?chong\s?){1,}|(curry\s?munchers?))'
+        if re.search(regex_pattern,comment_text):
+            #matching word found
+            lemmy.comment.report(comment_id,reason="Word in comment appears on slur list - Automated report by ZippyBot")
+            mod_action = "Comment Flagged"
+            logging.info("Word matching regex found in content, reported.")
+        else:
+            mod_action = "None"
+        
+        add_comment_to_db(comment_id, comment_poster, mod_action)
+
+def check_comment_db(comment_id):
+    try:
+        with connect_to_mod_db() as conn:
+            action_query = '''SELECT comment_id FROM new_comments WHERE comment_id=?'''
+            comment_match = execute_sql_query(conn, action_query, (comment_id,))
+
+            if comment_match:
+                return "duplicate"   
+                
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+    return "error"
+
+def add_comment_to_db(comment_id, comment_poster, mod_action):
+    try:          
+        logging.debug("Adding new comment to db")
+        with connect_to_mod_db() as conn:
+            sqlite_insert_query = """INSERT INTO new_comments (comment_id, comment_poster, mod_action) VALUES (?,?,?);"""
+            data_tuple = (comment_id, comment_poster, mod_action,)
+            execute_sql_query(conn, sqlite_insert_query, data_tuple)
+
+            logging.debug("Added comment to db")
+            return "added"
+        
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+    return "error"
+    
+def connect_to_mod_db():
+    return sqlite3.connect('resources/mod_actions.db')
+
+def check_posts():
+    recent_posts = lemmy.post.list(limit=10,type_=ListingType.Local)
+    for post in recent_posts:
+        post_id = post['post']['id']
+        post_title = post['post']['name']
+        # Check if 'body' exists in the 'post' dictionary
+        if 'body' in post['post']:
+            post_text = post['post']['body']
+        else:
+            post_text = "No body found" 
+        
+        poster_id = post['creator']['id']
+        poster_name = post['creator']['name']
+
+        #check if post has already been scanned
+        if check_post_db(post_id) == "duplicate":
+            continue
+
+        regex_pattern = r'((f(a|4)g(got|g)?){1,}|ni((g{2,}|q)+|[gq]{2,})[e3r]+(s|z)?|dindu(s?){1,}|mudslime?s?|kikes?|\bspi(c|k)s?\b|\bchinks?|gooks?|\btr(a|@)nn?(y|(i|1|l)es?|ers?)|(tr(a|@)nn?(y|(i|1|l)es?|ers?)){1,}|(towel\s*heads?){1,}|be(a|@|4)ners?|\bjaps?\b|(japs){2,}|\bcoons?\b|(coons?){2,}|\bpakis?\b|(pakis?){2,}|(porch\s?monkey){1,}|\bching\s?chong\b|(ching\s?chong\s?){1,}|(curry\s?munchers?))'
+        match_found = False
+
+        if re.search(regex_pattern,post_text):
+            match_found = True
+        if re.search(regex_pattern,post_title):
+            match_found = True
+
+        if match_found == True:
+            #matching word found
+            lemmy.post.report(post_id,reason="Word in post by user " + poster_name + " appears on slur list - Automated report by ZippyBot")
+            mod_action = "Post Flagged"
+            logging.info("Word matching regex found in content, reported.")
+        else:
+            mod_action = "None"
+        
+        add_post_to_db(post_id, poster_id, mod_action)
+
+
+def check_post_db(post_id):
+    try:
+        with connect_to_mod_db() as conn:
+            action_query = '''SELECT post_id FROM new_posts WHERE post_id=?'''
+            post_match = execute_sql_query(conn, action_query, (post_id,))
+
+            if post_match:
+                return "duplicate"   
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+    return "error"
+
+def add_post_to_db(post_id, poster_id, mod_action):
+    try:          
+        logging.debug("Adding new post to db")
+        with connect_to_mod_db() as conn:
+            sqlite_insert_query = """INSERT INTO new_posts (post_id, poster_id, mod_action) VALUES (?,?,?);"""
+            data_tuple = (post_id, poster_id, mod_action,)
+            execute_sql_query(conn, sqlite_insert_query, data_tuple)
+
+            logging.debug("Added post to db")
+            return "added"
+        
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+    return "error"

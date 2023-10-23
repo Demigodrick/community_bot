@@ -14,7 +14,7 @@ COPY bot_query.py .
 COPY config.py .
 COPY main.py .
 COPY .env .
-COPY resources/disposable_email_blocklist.conf ./resources/disposable_email_blocklist.conf
+COPY resources/ ./resources/
 COPY pythorhead ./pythorhead
 
 # Install any needed packages specified in requirements.txt
