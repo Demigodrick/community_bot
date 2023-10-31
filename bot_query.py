@@ -41,7 +41,7 @@ def check_dbs():
 
         with sqlite3.connect('resources/users.db') as conn:
             #Create or check users table
-            create_table(conn, 'users', '(local_user_id INT, public_user_id INT, username TEXT, has_posted INT, has_had_pm INT, email TEXT)')
+            create_table(conn, 'users', '(local_user_id INT, public_user_id INT, username TEXT, has_posted INT, has_had_pm INT, email TEXT, subscribed INT)')
 
             #Create or check communities table
             create_table(conn, 'communities', '(community_id INT, community_name TEXT)')
@@ -60,6 +60,10 @@ def check_dbs():
             #create or check new comments table
             create_table(conn, 'new_comments', '(comment_id INT, comment_poster INT, mod_action STR)')
 
+        with sqlite3.connect('resources/news.db') as conn:
+            #create or check new posts table
+            create_table(conn, 'game_news', '(article_title TEXT, article_date TEXT)')
+
 
 
     except sqlite3.Error as e:
@@ -69,6 +73,12 @@ def check_dbs():
   
 def connect_to_vote_db():
     return sqlite3.connect('resources/vote.db')
+
+def connect_to_news_db():
+    return sqlite3.connect('resources/news.db')
+
+def connect_to_users_db():
+    return sqlite3.connect('resources/users.db')
 
 def execute_sql_query(connection, query, params=()):
     with connection:
@@ -271,6 +281,35 @@ def check_pms():
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
+        if pm_context == "#unsubscribe":
+            status = "unsub"
+            if broadcast_status(pm_sender, status) == "successful":
+                lemmy.private_message.create("Hey, " + pm_username + ". \n \n"
+                                             "Your unsubscribe request was successful. You can resubscribe at any time by sending me a message with `#subscribe`. \n\n"
+                                             "I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+            else:
+                lemmy.private_message.create("Hey, " + pm_username + ". \n \n"
+                                             "Sorry, something went wrong with your request :( \n\n"
+                                             "Please message [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip) directly to let them know, and they'll sort it out for you.")
+                
+            lemmy.private_message.mark_as_read(pm_id,True)
+            continue
+
+        if pm_context == "#subscribe":
+            status = "sub"
+            if broadcast_status(pm_sender, status) == "successful":
+                lemmy.private_message.create("Hey, " + pm_username + ". \n \n"
+                                             "Your subscribe request was successful. You can unsubscribe at any time by sending me a message with `#unsubscribe`. \n\n"
+                                             "I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+            else:
+                lemmy.private_message.create("Hey, " + pm_username + ". \n \n"
+                                             "Sorry, something went wrong with your request :( \n\n"
+                                             "Please message [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip) directly to let them know, and they'll sort it out for you.")
+                
+            lemmy.private_message.mark_as_read(pm_id,True)
+            continue
+                       
+
 
         if pm_context.split(" @")[0] == "#create":
             community_name = pm_context.split("@")[1]
@@ -405,9 +444,12 @@ def check_pms():
                 continue
 
         #broadcast messages
-        #if pm_context.split(" ")[0] == "#broadcast":
-        #    if user_admin == True:
-                
+        if pm_context.split(" ")[0] == "#broadcast":
+            if user_admin == True:
+                message = pm_context.replace('#broadcast', "", 1)
+                broadcast_message(message)                
+            lemmy.private_message.mark_as_read(pm_id, True)
+            continue
 
         if pm_context == "#purgevotes":
             if user_admin == True:
@@ -470,7 +512,7 @@ def get_new_users():
        
         if update_registration_db(local_user_id, username, public_user_id, email) == "new_user":
             logging.debug("sending new user a pm")
-            lemmy.private_message.create("Hey, " + username + ". \n \n # Welcome to Lemmy.zip! \n \n Please take a moment to familiarise yourself with [our Welcome Post](https://lemmy.zip/post/43). (Text that looks like this is a clickable link!)" 
+            lemmy.private_message.create("Hey, " + username + ". \n \n # Welcome to Lemmy.zip! \n \n Please take a moment to familiarise yourself with [our Welcome Post](https://lemmy.zip/post/43). (Text that looks like this is a clickable link!) \n \n" 
                                                                 "This post has all the information you'll need to get started on Lemmy, so please have a good read first! \n \n"
                                                                 "Please also take a look at our rules, they are in the sidebar of this instance. I can send these to you at any time, just reply to this message or send me a new message with `#rules`. \n \n"
                                                                 "If you're on a mobile device, you can [tap here](https://m.lemmy.zip) to go straight to our mobile site. \n \n"
@@ -503,10 +545,13 @@ def update_registration_db(local_user_id, username, public_user_id, email):
             if id_match is not None:
                 logging.debug("Matching ID found, ignoring")
                 return "User ID already exists"
+            
+            #default user to subscribed list
+            subscribed = 1
 
             logging.debug("User ID did not match an existing user ID, adding")       
-            sqlite_insert_query = "INSERT INTO users (local_user_id, public_user_id, username, email) VALUES (?, ?, ?, ?);"
-            data_tuple = (local_user_id, public_user_id, username, email)
+            sqlite_insert_query = "INSERT INTO users (local_user_id, public_user_id, username, email, subscribed) VALUES (?, ?, ?, ?, ?);"
+            data_tuple = (local_user_id, public_user_id, username, email, subscribed)
             
             curs.execute(sqlite_insert_query, data_tuple)
             logging.debug("Added new user to database")
@@ -533,6 +578,11 @@ def get_communities():
         community_name = communities['community']['name']
         
         find_mod = lemmy.community.get(community_id)
+
+        if find_mod.get('moderators') is None:
+            logging.info("Unable to get moderator of community, skipping.")
+            continue
+
         mods = find_mod['moderators']
 
         #throwing this in here to help stop nginx timeouts causing errors
@@ -697,6 +747,9 @@ def steam_deals():
         content_value = entry.content[0]['value']
         steam_url = re.search(r'https://store.steampowered.com/app/\d+/\w+/', str(content_value))
         
+        deal_published = entry.published
+        deal_title = entry.title
+
         if steam_url:
             steam_url = steam_url.group()
         else:
@@ -704,14 +757,47 @@ def steam_deals():
             add_deal_to_db(deal_title, deal_published)
             continue
         
-        deal_published = entry.published
-        deal_title = entry.title
         
         if add_deal_to_db(deal_title, deal_published) == "added":
             community_id = lemmy.discover_community("gamedeals")
             lemmy.post.create(community_id,name="Steam Deal: " + deal_title, url=steam_url)
-        
 
+def game_news():
+    #url of rss feed
+    rss_url = "https://www.gameinformer.com/news.xml"
+
+    feed = feedparser.parse(rss_url)
+    for entry in feed.entries[:10]:
+        article_title = entry.title
+        article_date = entry.published
+        article_url = entry.link
+
+        if add_news_to_db(article_title, article_date) == "added":
+            #add news to website
+            community_id = lemmy.discover_community("gaming")
+            lemmy.post.create(community_id, article_title, url=article_url)
+
+def add_news_to_db(article_title, article_date):
+    try:
+        with connect_to_news_db() as conn:
+            #check if news article was already published
+            news_query = '''SELECT article_title, article_date FROM game_news WHERE article_title=? AND article_date=?'''
+            news_match = execute_sql_query(conn, news_query, (article_title,article_date,))
+
+            if news_match:
+                return "duplicate"
+
+            logging.debug("New news article")
+
+            sqlite_insert_query = '''INSERT INTO game_news (article_title, article_date) VALUES (?,?);'''
+            data_tuple = (article_title, article_date,)
+            execute_sql_query(conn, sqlite_insert_query, data_tuple)
+
+            logging.debug("Added news article to db")
+            return "added"
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+        return "error"
 
 
 def add_deal_to_db(deal_title, deal_published):            
@@ -852,3 +938,48 @@ def add_post_to_db(post_id, poster_id, mod_action):
     except Exception as e:
         logging.error(f"An error occurred: {e}")
     return "error"
+
+def broadcast_message(message):
+    #get lowest and highest local user ids first
+    try:
+        logging.debug("broadcasting message")
+        with connect_to_users_db() as conn:
+            cursor = conn.cursor()
+            query = "SELECT public_user_id, username, subscribed FROM users ORDER BY local_user_id"
+            cursor.execute(query)
+                
+            for row in cursor.fetchall():
+                public_id, username, subscribed = row
+                try:
+                    if subscribed == 1:
+                        lemmy.private_message.create("Hello, " + username + ".\n \n" + message + "\n\n *This is an automated message. To unsubscribe, please reply to this message with* `#unsubscribe`.", public_id) 
+                        time.sleep(0.2)
+                except Exception as e:
+                    logging.exception("Message failed to send to " + username)
+    except sqlite3.Error as e:
+        logging.error("SQLite error: %s", e)               
+
+    finally:
+        if cursor:
+            cursor.close()
+
+def broadcast_status(pm_sender, status):
+    with connect_to_users_db() as conn:
+        cursor = conn.cursor()
+        
+        if status == "unsub":    
+            query = "UPDATE users SET subscribed = 0 WHERE public_user_id = ?"
+            cursor.execute(query, (pm_sender,))
+            conn.commit()  # Committing the transaction
+            logging.debug("User unsubscribed successfully")
+            return "successful"
+
+
+        if status == "sub":
+            query = "UPDATE users SET subscribed = 1 WHERE public_user_id = ?"
+            cursor.execute(query, (pm_sender,))
+            conn.commit()  # Committing the transaction
+            logging.debug("User subscribed successfully")
+            return "successful"
+    
+
