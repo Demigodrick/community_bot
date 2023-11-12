@@ -9,6 +9,8 @@ import json
 import os
 import feedparser
 import re
+import asyncio
+from nio import AsyncClient, MatrixRoom, RoomMessageText
 
 import smtplib
 from email.mime.text import MIMEText
@@ -16,6 +18,11 @@ from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
 
 logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+
+####################### N O T E S ###############################
+#  Add in reports for messages (doesnt exist in pythorhead yet)
+#  anti-spam measure for an ID?
+
 
 def login():
     global lemmy
@@ -63,6 +70,14 @@ def check_dbs():
         with sqlite3.connect('resources/news.db') as conn:
             #create or check new posts table
             create_table(conn, 'game_news', '(article_title TEXT, article_date TEXT)')
+        
+        with sqlite3.connect('resources/reports.db') as conn:
+            create_table(conn, 'post_reports', '(report_id INT, reporter_id INT, reporter_name TEXT, report_reason TEXT, post_id INT)')
+
+            create_table(conn, 'comment_reports', '(report_id INT, reporter_id INT, reporter_name TEXT, report_reason TEXT, comment_id INT)')
+
+            #create_table(conn, 'message_reports', '(report_id INT, reporter_id INT, reporter_name TEXT, report_reason TEXT, message_id INT)')
+
 
 
 
@@ -79,6 +94,9 @@ def connect_to_news_db():
 
 def connect_to_users_db():
     return sqlite3.connect('resources/users.db')
+
+def connect_to_reports_db():
+    return sqlite3.connect('resources/reports.db')
 
 def execute_sql_query(connection, query, params=()):
     with connection:
@@ -199,6 +217,74 @@ def check_pms():
 
         logging.debug(pm_username + " (" + str(pm_sender) + ") sent " + pm_context + " - user score is " + str(user_score) + " " + str(user_admin))
 
+        #open to anyone on lemmy. handles urgent mod reports.
+        if pm_context.split(" -")[0] == "#urgent":
+            split_context = pm_context.split(" -")
+            if len(split_context) > 1:
+                context_identifier = split_context[1]
+                
+                if context_identifier == "p":
+                    report_id = split_context[2]
+
+                    with connect_to_reports_db() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT report_id, reporter_id, reporter_name, report_reason, post_id FROM post_reports WHERE report_id = ?", (report_id,))
+                        row = cursor.fetchone()
+
+                        if row:
+                            report_id, reporter_id, reporter_name, report_reason, post_id = row
+
+                            #check reporter_id matches pm_sender to stop someone spamming id numbers
+                            if reporter_id == pm_sender:
+                            #write message to send to matrix
+                                matrix_body = "Hello, there has been an urgent report from " + reporter_name + " regarding a post at https://lemmy.zip/post/" + str(post_id) + ". The user gave the report reason: " + report_reason + " - Please review urgently."
+                                asyncio.run(send_matrix_message(matrix_body))
+                                lemmy.private_message.create("Hey " + pm_username +", thanks for the urgent report - We'll get right on it. "
+                                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                lemmy.private_message.mark_as_read(pm_id, True)
+                            else:
+                                lemmy.private_message.mark_as_read(pm_id, True)
+
+
+
+                            conn.close
+                            continue
+                
+                if context_identifier == "c":
+                    report_id = split_context[2]
+
+                    with connect_to_reports_db() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("SELECT report_id, reporter_id, reporter_name, report_reason, comment_id FROM comment_reports WHERE report_id = ?", (report_id,))
+                        row = cursor.fetchone()
+
+                        if row:
+                            report_id, reporter_id, reporter_name, report_reason, comment_id = row
+
+                            #check reporter_id matches pm_sender to stop someone spamming id numbers
+                            if reporter_id == pm_sender:
+                            #write message to send to matrix
+                                matrix_body = "Hello, there has been an urgent report from " + reporter_name + " regarding a comment at https://lemmy.zip/comment/" + str(comment_id) + ". The user gave the report reason: " + report_reason + " - Please review urgently."
+                                asyncio.run(send_matrix_message(matrix_body))
+                                lemmy.private_message.create("Hey " + pm_username +", thanks for the urgent report - We'll get right on it. "
+                                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                lemmy.private_message.mark_as_read(pm_id, True)
+                            else:
+                                lemmy.private_message.mark_as_read(pm_id, True)
+
+
+
+                            conn.close
+                            continue
+
+        else:
+            lemmy.private_message.mark_as_read(pm_id, True)
+            continue
+            
+            
+        
+
+        #IMPORTANT keep this here - only put reply code above that you want ANYONE ON LEMMY/FEDIVERSE TO BE ABLE TO ACCESS outside of your instance when they message your bot.
         if user_local != settings.LOCAL:
             lemmy.private_message.create("Hey, " + pm_username + f". This bot is only for users of {settings.INSTANCE}. "
                                             "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
@@ -514,7 +600,7 @@ def get_new_users():
             logging.debug("sending new user a pm")
             lemmy.private_message.create("Hey, " + username + ". \n \n # Welcome to Lemmy.zip! \n \n Please take a moment to familiarise yourself with [our Welcome Post](https://lemmy.zip/post/43). (Text that looks like this is a clickable link!) \n \n" 
                                                                 "This post has all the information you'll need to get started on Lemmy, so please have a good read first! \n \n"
-                                                                "Please also take a look at our rules, they are in the sidebar of this instance. I can send these to you at any time, just reply to this message or send me a new message with `#rules`. \n \n"
+                                                                "Please also take a look at our rules, they are in the sidebar of this instance, or you can view them [here](https://legal.lemmy.zip/docs/code_of_conduct/), or I can send these to you at any time - just send me a message with `#rules`. \n \n"
                                                                 "If you're on a mobile device, you can [tap here](https://m.lemmy.zip) to go straight to our mobile site. \n \n"
                                                                 "Lemmy.zip is 100% funded by user donations, so if you are enjoying your time on Lemmy.zip please [consider donating](https://opencollective.com/lemmyzip).\n \n"
                                                                 "Want to change the theme of the site? You can go to your [profile settings](https://lemmy.zip/settings) (or click the dropdown by your username and select Settings) and scroll down to theme. You'll find a list of themes you can try out and see which one you like the most! \n \n"
@@ -763,19 +849,22 @@ def steam_deals():
             lemmy.post.create(community_id,name="Steam Deal: " + deal_title, url=steam_url)
 
 def game_news():
-    #url of rss feed
-    rss_url = "https://www.gameinformer.com/news.xml"
+    #url of rss feeds
+    rss_urls = [
+        "https://www.gameinformer.com/news.xml",
+        "https://www.rockpapershotgun.com/feed/news"
+    ]
+    for rss_url in rss_urls:
+        feed = feedparser.parse(rss_url)
+        for entry in feed.entries[:2]:
+            article_title = entry.title
+            article_date = entry.published
+            article_url = entry.link
 
-    feed = feedparser.parse(rss_url)
-    for entry in feed.entries[:10]:
-        article_title = entry.title
-        article_date = entry.published
-        article_url = entry.link
-
-        if add_news_to_db(article_title, article_date) == "added":
-            #add news to website
-            community_id = lemmy.discover_community("gaming")
-            lemmy.post.create(community_id, article_title, url=article_url)
+            if add_news_to_db(article_title, article_date) == "added":
+                #add news to website
+                community_id = lemmy.discover_community("gaming")
+                lemmy.post.create(community_id, article_title, url=article_url)
 
 def add_news_to_db(article_title, article_date):
     try:
@@ -981,5 +1070,166 @@ def broadcast_status(pm_sender, status):
             conn.commit()  # Committing the transaction
             logging.debug("User subscribed successfully")
             return "successful"
+        
+
+def post_reports():
     
+    recent_reports = lemmy.post.report_list(limit=5, unresolved_only="true")
+
+    #define words in the report that will trigger the urgent message
+    serious_words= ["csam", "illegal", "kill", "suicide"]
+
+    if recent_reports:
+        #recent_reports = lemmy.post.report_list(limit=10)
+        for report in recent_reports:
+            serious_flag = False  
+            creator = report['creator']['name']
+            creator_id = report['post_report']['creator_id']
+            report_id = report['post_report']['id']
+            report_reason = report['post_report']['reason']
+            #activity pub id (i.e. home instance post url)
+            ap_id = report['post']['ap_id']
+            reported_content_id = report['post_report']['post_id']
+
+            report_reason = report_reason.lower()
+
+            for word in serious_words:
+                if word in report_reason:
+                    serious_flag = True
+                    break
+
+                
+
+            local_post = re.search(settings.INSTANCE, str(ap_id))
+
+            if serious_flag:
+                if not local_post:
+                    report_reply = ("Thank you for submitting your report. \n\n We take each report seriously and ensure it undergoes a thorough manual review. Please note, since the content you reported is not hosted directly on Lemmy.zip," 
+                                    "our ability to take action might be limited if it doesn't violate Lemmy.zip's [Code of Conduct](https://legal.lemmy.zip/docs/code_of_conduct/). \n" 
+                                    "Responsibility for moderation in such cases typically falls to the moderators and admins of the specific local instance where the content is posted.\n\n"
+                                    "However, if you believe the content in question is illegal or demands urgent attention, we urge you to reply to this message immediately with `#urgent -p -" + str(report_id) + "` (copy and paste only this text into the reply box).\n\n" 
+                                    "This will alert our administration team, who will take immediate action as necessary. Your vigilance in helping maintain a safe and respectful community is greatly appreciated.")            
+                
+                if local_post:
+                    report_reply = ("Thank you for submitting your report. \n\n We value your effort in helping us maintain a safe and respectful community on Lemmy.zip. Every report is taken seriously and undergoes a thorough manual review by our team.\n"
+                                    "We assure you that appropriate actions will be taken based on our [Code of Conduct](https://legal.lemmy.zip/docs/code_of_conduct/).\n\n"
+                                    "In instances where you believe the content is illegal and/or requires urgent intervention (such as CSAM or a threat to life), we urge you to reply to this message immediately with `#urgent -p -" + str(report_id) + "` (copy and paste only this text into the reply box). \n\n"
+                                    "This will alert our administration team who will take immediate action as necessary. Your vigilance in helping maintain a safe and respectful community is greatly appreciated.")
+                    
+            if not serious_flag:
+                if not local_post:
+                    report_reply = ("Thank you for submitting your report. \n\n We take each report seriously and ensure it undergoes a thorough manual review. Please note, since the content you reported is not hosted directly on Lemmy.zip," 
+                                    "our ability to take action might be limited if it doesn't violate Lemmy.zip's [Code of Conduct](https://legal.lemmy.zip/docs/code_of_conduct/). \n" 
+                                    "Responsibility for moderation in such cases typically falls to the moderators and admins of the specific local instance where the content is posted.\n\n" 
+                                    "Your vigilance in helping maintain a safe and respectful community is greatly appreciated.")            
+                
+                if local_post:
+                    report_reply = ("Thank you for submitting your report. \n\n We value your effort in helping us maintain a safe and respectful community on Lemmy.zip. Every report is taken seriously and undergoes a thorough manual review by our team.\n"
+                                    "We assure you that appropriate actions will be taken based on our [Code of Conduct](https://legal.lemmy.zip/docs/code_of_conduct/).\n\n"
+                                    "Your vigilance in helping maintain a safe and respectful community is greatly appreciated.")
+
+            with connect_to_reports_db() as conn:
+                check_reports = '''SELECT report_id FROM post_reports WHERE report_id=?'''
+                report_match = execute_sql_query(conn, check_reports, (report_id,))
+
+                if not report_match:
+                    #tables: 'post_reports', '(report_id INT, reporter_id INT, reporter_name TEXT, report_reason TEXT, post_id INT'
+                    sqlite_insert_query = """INSERT INTO post_reports (report_id, reporter_id, reporter_name, report_reason, post_id) VALUES (?,?,?,?,?);"""
+                    data_tuple = (report_id, creator_id, creator, report_reason, reported_content_id,)
+                    execute_sql_query(conn, sqlite_insert_query, data_tuple)
+            
+                    lemmy.private_message.create("Hello " + creator + ",\n\n" + report_reply + "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", creator_id)
+
+def comment_reports():
+    recent_reports = lemmy.comment.report_list(limit=5, unresolved_only="true")
+ 
+
+    #define words in the report that will trigger the urgent message
+    serious_words= ["csam", "illegal", "kill", "suicide"]
+
+    for report in recent_reports:
+        
+        serious_flag = False  
+        reporter= report['creator']['name']
+        reporter_id = report['creator']['id']
+        creator_url = report['comment_creator']['actor_id']
+        report_id = report['comment_report']['id']
+        report_reason = report['comment_report']['reason']
+        #activity pub id (i.e. home instance post url)
+        ap_id = report['comment']['ap_id']
+        reported_content_id = report['comment_report']['comment_id']
+
+        report_reason = report_reason.lower()
+
+        for word in serious_words:
+            if word in report_reason:
+                serious_flag = True
+                break     
+
+        local_post = re.search(settings.INSTANCE, str(ap_id))
+
+        if serious_flag:
+            if not local_post:
+                report_reply = ("Thank you for submitting your report. \n\n We take each report seriously and ensure it undergoes a thorough manual review. Please note, since the content you reported is not hosted directly on Lemmy.zip," 
+                                "our ability to take action might be limited if it doesn't violate Lemmy.zip's [Code of Conduct](https://legal.lemmy.zip/docs/code_of_conduct/). \n" 
+                                "Responsibility for moderation in such cases typically falls to the moderators and admins of the specific local instance where the content is posted.\n\n"
+                                "However, if you believe the content in question is illegal or demands urgent attention, we urge you to reply to this message immediately with `#urgent -c -" + str(report_id) + "` (copy and paste only this text into the reply box).\n\n" 
+                                "This will alert our administration team, who will take immediate action as necessary. Your vigilance in helping maintain a safe and respectful community is greatly appreciated.")            
+            
+            if local_post:
+                report_reply = ("Thank you for submitting your report. \n\n We value your effort in helping us maintain a safe and respectful community on Lemmy.zip. Every report is taken seriously and undergoes a thorough manual review by our team.\n"
+                                "We assure you that appropriate actions will be taken based on our [Code of Conduct](https://legal.lemmy.zip/docs/code_of_conduct/).\n\n"
+                                "In instances where you believe the content is illegal and/or requires urgent intervention (such as CSAM or a threat to life), we urge you to reply to this message immediately with `#urgent -c -" + str(report_id) + "` (copy and paste only this text into the reply box). \n\n"
+                                "This will alert our administration team who will take immediate action as necessary. Your vigilance in helping maintain a safe and respectful community is greatly appreciated.")
+                
+        if not serious_flag:
+            if not local_post:
+                report_reply = ("Thank you for submitting your report. \n\n We take each report seriously and ensure it undergoes a thorough manual review. Please note, since the content you reported is not hosted directly on Lemmy.zip," 
+                                "our ability to take action might be limited if it doesn't violate Lemmy.zip's [Code of Conduct](https://legal.lemmy.zip/docs/code_of_conduct/). \n" 
+                                "Responsibility for moderation in such cases typically falls to the moderators and admins of the specific local instance where the content is posted.\n\n" 
+                                "Your vigilance in helping maintain a safe and respectful community is greatly appreciated.")            
+            
+            if local_post:
+                report_reply = ("Thank you for submitting your report. \n\n We value your effort in helping us maintain a safe and respectful community on Lemmy.zip. Every report is taken seriously and undergoes a thorough manual review by our team.\n"
+                                "We assure you that appropriate actions will be taken based on our [Code of Conduct](https://legal.lemmy.zip/docs/code_of_conduct/).\n\n"
+                                "Your vigilance in helping maintain a safe and respectful community is greatly appreciated.")
+
+        with connect_to_reports_db() as conn:
+            check_reports = '''SELECT report_id FROM comment_reports WHERE report_id=?'''
+            report_match = execute_sql_query(conn, check_reports, (report_id,))
+
+            if not report_match:
+                sqlite_insert_query = """INSERT INTO comment_reports (report_id, reporter_id, reporter_name, report_reason, comment_id) VALUES (?,?,?,?,?);"""
+                data_tuple = (report_id, reporter_id, reporter, report_reason, reported_content_id,)
+                execute_sql_query(conn, sqlite_insert_query, data_tuple)
+        
+                lemmy.private_message.create("Hello " + reporter + ",\n\n" + report_reply + "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", reporter_id)
+
+
+def check_reports():
+    post_reports()
+    comment_reports()
+    
+async def send_matrix_message(matrix_body):
+    client = AsyncClient("https://matrix.org", "@lemmy-uptime-bot:matrix.org")
+
+ # Use an access token to log in
+    client.access_token = settings.MATRIX_API_KEY
+
+    # Replace with the room ID or alias of the room you want to send a message to
+    room_id = settings.MATRIX_ROOM_ID
+
+    # Send a message to the room
+    await client.room_send(
+        room_id=room_id,
+        message_type="m.room.message",
+        content={
+            "msgtype": "m.text",
+            "body": matrix_body
+        }
+    )
+
+    # Logging out is not necessary when using an access token, but you might want to close the client session
+    await client.close()
+
 
