@@ -22,6 +22,8 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 ####################### N O T E S ###############################
 #  Add in reports for messages (doesnt exist in pythorhead yet)
 #  anti-spam measure for an ID?
+#  Check applications for declined applications, send email confirming declined. 
+#  Use reason if included otherwise generic text.
 
 
 def login():
@@ -218,8 +220,10 @@ def check_pms():
         logging.debug(pm_username + " (" + str(pm_sender) + ") sent " + pm_context + " - user score is " + str(user_score) + " " + str(user_admin))
 
         #open to anyone on lemmy. handles urgent mod reports.
-        if pm_context.split(" -")[0] == "#urgent":
-            split_context = pm_context.split(" -")
+        split_context = pm_context.split(" -")
+
+        # Check if the first part of the split contains '#urgent'
+        if "#urgent" in split_context[0] or "> #urgent" in split_context[0]:
             if len(split_context) > 1:
                 context_identifier = split_context[1]
                 
@@ -277,9 +281,9 @@ def check_pms():
                             conn.close
                             continue
 
-        else:
-            lemmy.private_message.mark_as_read(pm_id, True)
-            continue
+            else:
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
             
             
         
@@ -681,6 +685,7 @@ def get_communities():
         if new_community_db(community_id, community_name) == "community":
             lemmy.private_message.create("Hey, " + mod_name + ". Congratulations on creating your community, [" + community_name + "](/c/"+community_name+"@lemmy.zip). \n Here are some tips for getting users to subscribe to your new community!\n"
                                                                 "- Try posting a link to your community at [New Communities](/c/newcommunities@lemmy.world).\n"
+                                                                "- You should also add your community to the [Lemmy Community Boost project](https://boost.lemy.lol) so it is automatically shared to a bunch of other instances.\n"
                                                                 "- Ensure your community has some content. Users are more likely to subscribe if content is already available. (5 to 10 posts is usually a good start)\n"
                                                                 "- Consistency is key - you need to post consistently and respond to others to keep engagement with your new community up.\n\n"
                                                                 "I hope this helps!"
@@ -1085,6 +1090,7 @@ def post_reports():
             serious_flag = False  
             creator = report['creator']['name']
             creator_id = report['post_report']['creator_id']
+            local_user = report['creator']['local']
             report_id = report['post_report']['id']
             report_reason = report['post_report']['reason']
             #activity pub id (i.e. home instance post url)
@@ -1096,11 +1102,12 @@ def post_reports():
             for word in serious_words:
                 if word in report_reason:
                     serious_flag = True
-                    break
-
-                
+                    break              
 
             local_post = re.search(settings.INSTANCE, str(ap_id))
+
+            if local_user == False:
+                local_post = True
 
             if serious_flag:
                 if not local_post:
@@ -1153,6 +1160,7 @@ def comment_reports():
         reporter= report['creator']['name']
         reporter_id = report['creator']['id']
         creator_url = report['comment_creator']['actor_id']
+        local_user = report['creator']['local']
         report_id = report['comment_report']['id']
         report_reason = report['comment_report']['reason']
         #activity pub id (i.e. home instance post url)
@@ -1165,8 +1173,11 @@ def comment_reports():
             if word in report_reason:
                 serious_flag = True
                 break     
-
+        
         local_post = re.search(settings.INSTANCE, str(ap_id))
+
+        if local_user == False:
+            local_post = True
 
         if serious_flag:
             if not local_post:
