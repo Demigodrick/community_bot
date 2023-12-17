@@ -9,7 +9,7 @@ requests==2.31.0
 schedule==1.2.0
 typing_extensions==4.7.1
 urllib3==2.0.3
-feedparser==6.0.10
+feedparser==6.0.11
 matrix-nio[e2e]==0.22.1
 semver>=3.0.2
-pythorhead>=0.20.0
+pythorhead==0.20.0
