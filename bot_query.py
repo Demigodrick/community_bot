@@ -1,6 +1,7 @@
 from pythorhead import Lemmy
-from pythorhead.types import SortType, ListingType
+from pythorhead.types import SortType, ListingType, FeatureType
 from config import settings
+from datetime import datetime, timedelta, timezone
 import logging
 import sqlite3
 import time
@@ -80,7 +81,8 @@ def check_dbs():
 
             #create_table(conn, 'message_reports', '(report_id INT, reporter_id INT, reporter_name TEXT, report_reason TEXT, message_id INT)')
 
-
+        with sqlite3.connect('resources/autopost.db') as conn:
+            create_table(conn, 'com_posts', '(pin_id INTEGER PRIMARY KEY AUTOINCREMENT, community_id INT, mod_id INT, post_title TEXT, post_url TEXT, post_body TEXT, scheduled_post TIME, frequency TEXT, previous_post INT)')
 
 
     except sqlite3.Error as e:
@@ -99,6 +101,9 @@ def connect_to_users_db():
 
 def connect_to_reports_db():
     return sqlite3.connect('resources/reports.db')
+
+def connect_to_autopost_db():
+    return sqlite3.connect('resources/autopost.db')
 
 def execute_sql_query(connection, query, params=()):
     with connection:
@@ -192,7 +197,36 @@ def count_votes(poll_id):
         
     except Exception as e:
         logging.error(f"An error occurred: {e}")
-        return "error"    
+        return "error"
+
+def add_autopost_to_db(post_data):
+    try:
+        with connect_to_autopost_db() as conn:
+            cursor = conn.cursor()
+            query = """
+            INSERT INTO com_posts (community_id, mod_id, post_title, post_url, post_body, frequency, scheduled_post) 
+            VALUES (?, ?, ?, ?, ?, ?, ?)
+            """
+            values = (
+                post_data['community'], 
+                post_data['mod_id'], 
+                post_data['title'], 
+                post_data['url'], 
+                post_data['body'],
+                post_data['frequency'], 
+                post_data['scheduled_post']
+            )
+            cursor.execute(query, values)
+            conn.commit()
+
+            #Get the ID of the autopost just created
+            autopost_id_query = "SELECT last_insert_rowid()"
+            autopost_id = execute_sql_query(conn, autopost_id_query)[0]
+            return autopost_id
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+        return "error"
+    
 
 
 def check_pms():
@@ -213,11 +247,8 @@ def check_pms():
         pm_account_age = pm['creator']['published']
     
         output = lemmy.user.get(pm_sender)
-        user_score = output['person_view']['counts']['comment_score']
         user_local = output['person_view']['person']['local']
-        user_admin = output['person_view']['person']['admin']
-
-        logging.debug(pm_username + " (" + str(pm_sender) + ") sent " + pm_context + " - user score is " + str(user_score) + " " + str(user_admin))
+        user_admin = output['person_view']['is_admin']
 
         #open to anyone on lemmy. handles urgent mod reports.
         split_context = pm_context.split(" -")
@@ -300,8 +331,6 @@ def check_pms():
                 lemmy.private_message.create("Hey, " + pm_username + ". These are the commands I currently know:" + "\n\n "
                                                                             "- `#help` - See this message. \n "
                                                                             "- `#rules` - See the current instance rules. \n"
-                                                                            "- `#score` - See your user score. \n "
-                                                                            "- `#create` - Create a new community. Use @ to specify the name of the community you want to create, for example `#create @bot_community`. \n"
                                                                             "- `#vote` - Vote on an active poll. You'll need to have a vote ID number. An example vote would be `#vote 1 yes` or `#vote 1 no`.\n" 
                                                                             "- `#credits` - See who spent their time making this bot work!"
                                                                             "\n\n As an Admin, you also have access to the following commands: \n"
@@ -316,20 +345,11 @@ def check_pms():
                 lemmy.private_message.create("Hey, " + pm_username + ". These are the commands I currently know:" + "\n\n "
                                                                             "- `#help` - See this message. \n "
                                                                             "- `#rules` - See the current instance rules. \n"
-                                                                            "- `#score` - See your user score. \n "
-                                                                            "- `#create` - Create a new community. Use @ to specify the name of the community you want to create, for example `#create @bot_community`. \n"
                                                                             "- `#vote` - Vote on an active poll. You'll need to have a vote ID number. An example vote would be `#vote 1 yes` or `#vote 1 no`.\n" 
                                                                             "- `#credits` - See who spent their time making this bot work!"
                                                                             "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
-
-
-        if pm_context == "#score":
-            lemmy.private_message.create("Hey, " + pm_username + ". Your comment score is " + str(user_score) + ". \n \n I am a Bot. If you have any "
-                                                                "queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
-            lemmy.private_message.mark_as_read(pm_id, True)
-            continue
 
         if pm_context == "#rules":
             lemmy.private_message.create("Hey, " + pm_username + ". These are the current rules for Lemmy.zip. \n \n"
@@ -401,44 +421,44 @@ def check_pms():
                        
 
 
-        if pm_context.split(" @")[0] == "#create":
-            community_name = pm_context.split("@")[1]
+        #if pm_context.split(" @")[0] == "#create":
+        #    community_name = pm_context.split("@")[1]
 
             # check user score
-            if user_score < int(settings.SCORE):
-                lemmy.private_message.create("Hey, " + pm_username + ". Your comment score is too low to create a "
-                                                                        "community. Please interact with other "
-                                                                        "communities first. You can check your score at "
-                                                                        "any time by sending me a message with `#score` "
-                                                                        "and I will let you know!"  "\n \n I am a Bot. "
-                                                                        "If you have any queries, please contact ["
-                                                                        "Demigodrick](/u/demigodrick@lemmy.zip) or ["
-                                                                        "Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
-
+        #    if user_score < int(settings.SCORE):
+        #        lemmy.private_message.create("Hey, " + pm_username + ". Your comment score is too low to create a "
+        #                                                                "community. Please interact with other "
+        #                                                                "communities first. You can check your score at "
+        #                                                                "any time by sending me a message with `#score` "
+        #                                                                "and I will let you know!"  "\n \n I am a Bot. "
+        #                                                                "If you have any queries, please contact ["
+        #                                                                "Demigodrick](/u/demigodrick@lemmy.zip) or ["
+        #                                                                "Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+        #        lemmy.private_message.mark_as_read(pm_id, True)
+        #        continue
+        #
             # check if it already exists
-            check_community = lemmy.discover_community(community_name)
-
-            if check_community is not None:
-                lemmy.private_message.create("Hey, " + pm_username + ". Sorry, it looks like the community you are "
-                                                                        "trying to create already exists. \n \n I am a "
-                                                                        "Bot. If you have any queries, please contact ["
-                                                                        "Demigodrick](/u/demigodrick@lemmy.zip) or ["
-                                                                        "Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
+        #    check_community = lemmy.discover_community(community_name)
+        #
+        #    if check_community is not None:
+        #        lemmy.private_message.create("Hey, " + pm_username + ". Sorry, it looks like the community you are "
+        #                                                                "trying to create already exists. \n \n I am a "
+        #                                                                "Bot. If you have any queries, please contact ["
+        #                                                                "Demigodrick](/u/demigodrick@lemmy.zip) or ["
+        #                                                                "Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+        #        lemmy.private_message.mark_as_read(pm_id, True)
+        #        continue
 
             # create community - add user and remove bot as mod
-            lemmy.community.create(community_name, community_name)
-            community_id = lemmy.discover_community(community_name)
-            lemmy.community.add_mod_to_community(True, community_id, pm_sender)
-            lemmy.community.add_mod_to_community(False, community_id, settings.BOT_ID)
+        #    lemmy.community.create(community_name, community_name)
+        #    community_id = lemmy.discover_community(community_name)
+        #    lemmy.community.add_mod_to_community(True, community_id, pm_sender)
+        #    lemmy.community.add_mod_to_community(False, community_id, settings.BOT_ID)
 
-            lemmy.private_message.create("Hey, " + pm_username + ". Your new community, [" + community_name + "](/c/" + community_name + "), has been created. You can now set this community up to your liking. " 
-                                                                 "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
-            lemmy.private_message.mark_as_read(pm_id, True)
-            continue
+        #    lemmy.private_message.create("Hey, " + pm_username + ". Your new community, [" + community_name + "](/c/" + community_name + "), has been created. You can now set this community up to your liking. " 
+        #                                                         "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+        #    lemmy.private_message.mark_as_read(pm_id, True)
+        #    continue
 
         if pm_context.split(" -")[0] == "#takeover":
             if user_admin == True:
@@ -540,6 +560,153 @@ def check_pms():
                 broadcast_message(message)                
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
+
+        #mod action - pin a post
+        if pm_context.split(" ")[0] == '#autopost':
+             # Define the pattern to match each qualifier and its following content
+            pattern = r"-(c|t|b|u|d|h|f) (.*?)(?=\s-\w|$)"
+            
+            # Use regex to find all matches
+            matches = re.findall(pattern, pm_context)
+
+            # Dictionary to hold the parsed data
+            post_data = {
+                'community': None,
+                'mod_id': None,  
+                'title': None,
+                'url': None,
+                'body': None,
+                'day': None,
+                'time': None,
+                'frequency': None
+            }
+
+            # Map the matches to the correct keys in the dictionary
+            for key, value in matches:
+                if key == 'c':
+                    post_data['community'] = value
+                elif key == 't':
+                    post_data['title'] = value
+                elif key == 'b':
+                    post_data['body'] = value
+                elif key == 'u':
+                    post_data['url'] = value
+                elif key == 'd':
+                    post_data['day'] = value
+                elif key == 'h':
+                    post_data['time'] = value
+                elif key == 'f':
+                    post_data['frequency'] = value
+
+            #check mandatory fields
+            if post_data['community'] == None:
+                lemmy.private_message.create("Hey, " + pm_username + ". In order to use this command, you will need to specify a community with the `-c` flag, i.e. `-c gaming`."
+                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
+
+
+            if post_data['title'] == None:
+                lemmy.private_message.create("Hey, " + pm_username + ". In order to use this command, you will need to specify a title with the `-t` flag, i.e. `-t Weekly Thread`. You can also use the following commands in the title: \n\n"
+                                            "- %d (Day - i.e. 12) \n"
+                                            "- %m (Month - i.e. June) \n"
+                                            "- %y (Year - i.e. 2023) \n"
+                                            "- %w (Weekday - i.e. Monday) \n\n"
+                                            "For example, `Gaming Thread %w %d %m %y` would give you a title of `Gaming Thread Monday 12 June 2023`."
+                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
+
+            if post_data['day'] == None:
+                lemmy.private_message.create("Hey, " + pm_username + ". In order to use this command, you will need to specify a day of the week with the `-d` flag, i.e. `-d monday`."
+                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
+
+            if post_data['time'] == None:
+                lemmy.private_message.create("Hey, " + pm_username + ". In order to use this command, you will need to specify a time with the `-h` flag, i.e. `-h 07:30` Remember all times are UTC!."
+                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
+
+            if post_data['frequency'] == None:
+                lemmy.private_message.create("Hey, " + pm_username + ". In order to use this command, you will need to specify a post frequency with the `-f` flag, i.e. `-f weekly`. \n\n"
+                                            "You can use the following frequencies: \n"
+                                            "- weekly (every 7 days) \n"
+                                            "- fortnightly (every 14 days) \n"
+                                            "- 4weekly (every 28 days)"
+                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
+            
+            if post_data['frequency'] not in ["weekly", "fortnightly", "4weekly"]:
+                lemmy.private_message.create("Hey, " + pm_username + ". I couldn't find a valid frequency following the -f flag. \n\n"
+                                            "You can use the following frequencies: \n"
+                                            "- weekly (every 7 days) \n"
+                                            "- fortnightly (every 14 days) \n"
+                                            "- 4weekly (every 28 days)"
+                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
+
+
+
+            #check community is real
+            output = lemmy.community.get(name=post_data['community'])
+
+            if output == None:
+                lemmy.private_message.create("Hey, " + pm_username + ". The community you requested can't be found. Please double check the spelling and name and try again."
+                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
+            
+            #check if user is moderator of community
+            is_moderator = False
+
+            for moderator_info in output['moderators']:
+                if moderator_info['moderator']['id'] == pm_sender:
+                    is_moderator = True
+                    break  # Stop the loop as soon as we find a matching moderator
+
+            if not is_moderator:
+                # If pm_sender is not a moderator, send a private message
+                lemmy.private_message.create("Hey, " + pm_username + ". As you are not the moderator of this community, you are not able to create a scheduled post for it."
+                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
+            
+            post_data['mod_id'] = pm_sender
+
+            # Convert the day, time, and frequency into a scheduled datetime
+            if post_data['day'] and post_data['time']:
+                next_post_date = get_next_post_date(post_data['day'], post_data['time'], post_data['frequency'])
+                post_data['scheduled_post'] = next_post_date
+
+            # Insert into database
+            auto_post_id = add_autopost_to_db(post_data)
+
+            #fix for optional fields for PM purposes
+            if post_data['url'] == None:
+                post_data['url'] = ""
+            if post_data['body'] == None:
+                post_data['body'] = ""
+
+            
+            lemmy.private_message.create("Hey, " + pm_username + ". \n\n"
+                                        "The details for your scheduled post are as follows: \n\n"
+                                        "- Community: " + post_data['community'] + "\n\n"
+                                        "- Post Title: " + post_data['title'] + "\n"
+                                        "- Post Body: " + post_data['body'] + "\n"
+                                        "- Post URL: " + post_data['url'] + "\n"
+                                        "- Day: " + post_data['day'] + "\n"
+                                        "- Time (UTC): " + post_data['time'] + "\n"
+                                        "- Frequency: " + post_data['frequency'] + "\n"
+                                        "- Your next post date is: " + str(next_post_date) + "\n\n"
+                                        "- The ID for this autopost is: " + str(auto_post_id) + ". (Keep this safe as you will need it to cancel your autopost in the future!)"
+                                        "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+            lemmy.private_message.mark_as_read(pm_id, True)
+            continue
+
 
         if pm_context == "#purgevotes":
             if user_admin == True:
@@ -1220,7 +1387,140 @@ def comment_reports():
 def check_reports():
     post_reports()
     comment_reports()
+
+def get_next_post_date(day, time, frequency):
+    # Map days to integers
+    days = {
+        'Monday': 0,
+        'Tuesday': 1,
+        'Wednesday': 2,
+        'Thursday': 3,
+        'Friday': 4,
+        'Saturday': 5,
+        'Sunday': 6
+    }
+    # Frequency mapping 
+    frequency_mapping = {
+        'weekly': 7,
+        'fortnightly': 14,
+        '4weekly': 28  # Every 4 weeks
+        
+    }
     
+    today = datetime.now()
+    today_weekday = today.weekday()
+    target_weekday = days[day]
+
+    # Calculate days until the next target day
+    days_until_next = (target_weekday - today_weekday + 7) % 7
+    if days_until_next == 0:
+        days_until_next = 7
+
+    # Adjust for frequency
+    days_until_next += frequency_mapping.get(frequency, 7) - 7
+
+    # Combine date and time
+    next_post_datetime = today + timedelta(days=days_until_next)
+    post_time = datetime.strptime(time, "%H:%M").time()
+    return datetime.combine(next_post_datetime.date(), post_time)
+
+def calc_next_post_date(old_post_date, frequency):
+    # Map frequency to days
+    frequency_mapping = {
+        'weekly': 7,
+        'fortnightly': 14,
+        '4weekly': 28
+    }
+
+    # Get the number of days to add for the given frequency
+    days_to_add = frequency_mapping.get(frequency, 7)
+
+    # Add the days to the old_post_date
+    new_post_date = old_post_date + timedelta(days=days_to_add)
+
+    return new_post_date
+
+def check_scheduled_posts():
+    #first get current time/date in UTC
+    current_utc = datetime.now(timezone.utc)
+
+    #second connect to DB and check all rows for a matching time/data parameter
+    with connect_to_autopost_db() as conn:
+        cursor = conn.cursor()
+        query = "SELECT pin_id, scheduled_post FROM com_posts"
+        cursor.execute(query)
+        records = cursor.fetchall()
+
+        one_minute = timedelta(minutes=1)
+
+        # Process each record
+        for record in records:
+            record_id, stored_time_str = record
+            stored_datetime = datetime.fromisoformat(stored_time_str)
+            stored_datetime = stored_datetime.replace(tzinfo=timezone.utc)
+
+            # Check if the stored time is within 1 minute past current UTC
+            if current_utc - one_minute < stored_datetime <= current_utc:
+                # Fetch the full row for the record_id
+                full_row_query = "SELECT * FROM com_posts WHERE pin_id = ?"
+                cursor.execute(full_row_query, (record_id,))
+                full_row = cursor.fetchone()
+                
+                community_name = full_row[1]
+                post_title = full_row[3]
+                post_url = full_row[4]
+                post_body = full_row[5]
+                post_frequency = full_row[7]
+                previous_post = full_row[8]
+
+                if previous_post is not None:
+                    lemmy.post.feature(int(previous_post), False, FeatureType.Community)
+                
+                com_details = lemmy.community.get(name=community_name)
+
+                if com_details == None:
+                    query = "DELETE FROM com_posts WHERE pin_id = ?"
+                    cursor.execute(query, (record_id,))
+                    conn.commit
+                    continue
+
+                #format body string
+                post_body = post_body.replace("%m", current_utc.strftime("%B")) #Month name
+                post_body = post_body.replace("%d", current_utc.strftime("%d")) #Day of the month
+                post_body = post_body.replace("%y", current_utc.strftime("%Y")) #Year
+                post_body = post_body.replace("%w", current_utc.strftime("%A")) #Day of the week
+
+                #format title string
+                post_title = post_title.replace("%m", current_utc.strftime("%B")) #Month name
+                post_title = post_title.replace("%d", current_utc.strftime("%d")) #Day of the month
+                post_title = post_title.replace("%y", current_utc.strftime("%Y")) #Year
+                post_title = post_title.replace("%w", current_utc.strftime("%A")) #Day of the week
+
+
+                com_id = com_details['community_view']['community']['id']
+                #create post
+                post_output = lemmy.post.create(com_id,post_title,post_url,post_body)
+
+                #get post ID
+                previous_post = post_output['post_view']['post']['id']
+
+                query = "UPDATE com_posts SET previous_post = ? WHERE pin_id = ?"
+                cursor.execute(query, (previous_post, record_id))
+                conn.commit()
+
+                lemmy.post.feature(previous_post, True, feature_type=FeatureType.Community)
+
+                #need to work out when to make the next post
+                old_post_date = stored_datetime
+                next_post_date = calc_next_post_date(old_post_date, post_frequency)
+                query = "UPDATE com_posts SET scheduled_post = ? WHERE pin_id = ?"
+                cursor.execute(query, (next_post_date, record_id))
+                conn.commit()
+
+    # Close the database connection
+    conn.close()
+
+
 async def send_matrix_message(matrix_body):
     client = AsyncClient("https://matrix.org", "@lemmy-uptime-bot:matrix.org")
 
