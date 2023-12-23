@@ -12,6 +12,7 @@ import feedparser
 import re
 import asyncio
 from nio import AsyncClient, MatrixRoom, RoomMessageText
+import pytz
 
 import smtplib
 from email.mime.text import MIMEText
@@ -227,6 +228,54 @@ def add_autopost_to_db(post_data):
         logging.error(f"An error occurred: {e}")
         return "error"
     
+def delete_autopost(pin_id, pm_sender):
+    try:
+        with connect_to_autopost_db() as conn:
+            cursor = conn.cursor()
+            query = "SELECT * FROM com_posts WHERE pin_id = ?"
+            cursor.execute(query, (pin_id,))
+            full_row = cursor.fetchone()
+
+            community_name = full_row[1]
+            mod_id = full_row[2]
+
+            #check it has not already been deleted
+            if community_name == None:
+                lemmy.private_message.create("Hey, " + pm_username + ". A scheduled post with this ID does not exist."
+                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                return "not deleted"   
+
+            #check if delete request came from original author
+            if mod_id == pm_sender:
+                query = "DELETE FROM com_posts WHERE pin_id = ?"
+                cursor.execute(query, (pin_id,))
+                conn.commit 
+                return "deleted"
+
+            #not a match, check if sender is a mod of the community
+            output = lemmy.community.get(name=community_name)
+
+            is_moderator = False
+
+            for moderator_info in output['moderators']:
+                if moderator_info['moderator']['id'] == pm_sender:
+                    is_moderator = True
+                    query = "DELETE FROM com_posts WHERE pin_id = ?"
+                    cursor.execute(query, (pin_id,))
+                    conn.commit
+                    return "deleted"
+
+            if not is_moderator:
+                # If pm_sender is not a moderator, send a private message
+                lemmy.private_message.create("Hey, " + pm_username + ". As you are not the moderator of this community, you are not able to delete a scheduled post for it."
+                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                return "not deleted"       
+
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+        return "error"
+
+        
 
 
 def check_pms():
@@ -332,7 +381,8 @@ def check_pms():
                                                                             "- `#help` - See this message. \n "
                                                                             "- `#rules` - See the current instance rules. \n"
                                                                             "- `#vote` - Vote on an active poll. You'll need to have a vote ID number. An example vote would be `#vote 1 yes` or `#vote 1 no`.\n" 
-                                                                            "- `#credits` - See who spent their time making this bot work!"
+                                                                            "- `#credits` - See who spent their time making this bot work! \n"
+                                                                            "- `#autopost` - If you moderate a community, you can schedule an automatic post using this option. Use `#autoposthelp` for a full command list."
                                                                             "\n\n As an Admin, you also have access to the following commands: \n"
                                                                             "- `#poll` - Create a poll for users to vote on. Give your poll a name, and you will get back an ID number to users so they can vote on your poll. Example usage: `#poll @Vote for best admin` \n"
                                                                             "- `#closepoll` - Close an existing poll using the poll ID number, for example `#closepoll @1`\n" 
@@ -346,10 +396,34 @@ def check_pms():
                                                                             "- `#help` - See this message. \n "
                                                                             "- `#rules` - See the current instance rules. \n"
                                                                             "- `#vote` - Vote on an active poll. You'll need to have a vote ID number. An example vote would be `#vote 1 yes` or `#vote 1 no`.\n" 
-                                                                            "- `#credits` - See who spent their time making this bot work!"
+                                                                            "- `#credits` - See who spent their time making this bot work! \n"
+                                                                            "- `#autopost` - If you moderate a community, you can schedule an automatic post using this option. Use `#autoposthelp` for a full command list."
                                                                             "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
+
+        if pm_context == "#autoposthelp":
+            lemmy.private_message.create("Hey, " + pm_username + ". These are the commands you'll need to schedule an automatic post. Remember, you'll need to be a moderator in the community otherwise this won't work. \n \n"
+                                                                    "A typical command would look like `#autopost -c community_name -t post_title -b post_body -d day -h time -f frequency` \n"
+                                                                    "- `-c` - This defines the name of the community you are setting this up for. This is the original name of the community when you created it. \n"
+                                                                    "- `-t` - This defines the title of the post. You can use the modifiers listed below here. \n"
+                                                                    "- `-b` - This is the body of your post. This field is optional, so you don't need to include it if you don't want a body to your post. You can use the modifiers listed below here too. \n"
+                                                                    "- `-u` - This defines a URL you can add to your post. This field is optional, so you don't need to include it. \n"
+                                                                    "- `-d` - This defines the day of the week you want your thread to be posted on, i.e. `monday`, or you can enter a date you want the first post to occur in YYYYMMDD format, i.e. `20230612` which would be 12th June 2023. \n"
+                                                                    "- `-h` - This defines the time of the day you want this thread to be posted, i.e. `12:00`. All times are UTC! \n"
+                                                                    "- `-f` - This defines how often your thread will be posted. The options that currently exist are `weekly`, `fortnightly`, or `4weekly`. \n\n"
+                                                                    "There are some modifiers you can use as outlined above: \n"
+                                                                    "- `%d` - This will be replaced by the day of the month, i.e. `12` \n"
+                                                                    "- `%m` - This will be replaced by the name of the month, i.e. `June`. \n"
+                                                                    "- `%y` - This will be replaced by the current year, i.e. `2024` \n"
+                                                                    "- `%w` - This will be replaced by the day of the week, i.e. `Monday`.\n\n"
+                                                                    "For example, having `-t Weekly Thread %d %m` might be created as `Weekly Thread 12 June` depending on the day it is posted. \n\n"
+                                                                    "Finally, if you want to delete a scheduled autopost, use the command `#autopostdelete` with the ID number of the autopost, i.e. `#autopostdelete 1`. "
+                                                                    "\n \n If you need any further help getting this working, please contact [Demigodrick](/u/demigodrick@lemmy.zip).", pm_sender)
+            lemmy.private_message.mark_as_read(pm_id, True)
+            continue
+
+
 
         if pm_context == "#rules":
             lemmy.private_message.create("Hey, " + pm_username + ". These are the current rules for Lemmy.zip. \n \n"
@@ -618,7 +692,7 @@ def check_pms():
                 continue
 
             if post_data['day'] == None:
-                lemmy.private_message.create("Hey, " + pm_username + ". In order to use this command, you will need to specify a day of the week with the `-d` flag, i.e. `-d monday`."
+                lemmy.private_message.create("Hey, " + pm_username + ". In order to use this command, you will need to specify a day of the week with the `-d` flag, i.e. `-d monday`, or a specific date you want the first post to be posted in YYYYMMDD format, i.e. `-d 20230612."
                                             "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
@@ -632,6 +706,7 @@ def check_pms():
             if post_data['frequency'] == None:
                 lemmy.private_message.create("Hey, " + pm_username + ". In order to use this command, you will need to specify a post frequency with the `-f` flag, i.e. `-f weekly`. \n\n"
                                             "You can use the following frequencies: \n"
+                                            "- once (the post will only happen once) \n"
                                             "- weekly (every 7 days) \n"
                                             "- fortnightly (every 14 days) \n"
                                             "- 4weekly (every 28 days)"
@@ -639,9 +714,10 @@ def check_pms():
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
             
-            if post_data['frequency'] not in ["weekly", "fortnightly", "4weekly"]:
+            if post_data['frequency'] not in ["once", "weekly", "fortnightly", "4weekly"]:
                 lemmy.private_message.create("Hey, " + pm_username + ". I couldn't find a valid frequency following the -f flag. \n\n"
                                             "You can use the following frequencies: \n"
+                                            "- once (the post will only happen once) \n"
                                             "- weekly (every 7 days) \n"
                                             "- fortnightly (every 14 days) \n"
                                             "- 4weekly (every 28 days)"
@@ -676,11 +752,47 @@ def check_pms():
                 continue
             
             post_data['mod_id'] = pm_sender
+            
+            date_format = "%Y%m%d"
+
+            try:
+                parsed_date = datetime.strptime(post_data['day'], date_format)
+                # Check if the date is in the past
+                if parsed_date.date() < datetime.now().date():
+                    lemmy.private_message.create("Hey, " + pm_username + ". The date of the post you scheduled is in the past. Unfortunately I don't have a time machine :( \n\n"
+                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                    lemmy.private_message.mark_as_read(pm_id, True)
+                    continue
+                else:
+                    day_type = "date"
+            except ValueError:
+                # If it's not a date, check if it's a day of the week
+                weekdays = ["monday", "tuesday", "wednesday", "thursday", "friday", "saturday", "sunday"]
+                if post_data['day'].lower() in weekdays:
+                    day_type = "day"
+                else:
+                    lemmy.private_message.create("Hey, " + pm_username + ". Sorry, I can't work out when you want your post scheduled. Please pick a day of the week or specify a date you want recurring posts to start! Remember dates should be in YYYYMMDD format. \n\n"
+                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                    lemmy.private_message.mark_as_read(pm_id, True)
+                    continue
 
             # Convert the day, time, and frequency into a scheduled datetime
-            if post_data['day'] and post_data['time']:
-                next_post_date = get_next_post_date(post_data['day'], post_data['time'], post_data['frequency'])
-                post_data['scheduled_post'] = next_post_date
+            if day_type == "day":
+                if post_data['day'] and post_data['time']:
+                    next_post_date = get_next_post_date(post_data['day'], post_data['time'], post_data['frequency'])
+                    post_data['scheduled_post'] = next_post_date
+                    dtype = "Day"
+
+            if day_type == "date":
+                if post_data['day'] and post_data['time']:
+                    datetime_string = f"{post_data['day']} {post_data['time']}"
+                    datetime_obj = datetime.strptime(datetime_string, '%Y%m%d %H:%M')
+                    uk_timezone = pytz.timezone('Europe/London')
+                    localized_datetime = uk_timezone.localize(datetime_obj)
+                    post_data['scheduled_post'] = localized_datetime.astimezone(pytz.utc)
+                    next_post_date = post_data['scheduled_post']
+                    dtype = "Date (YYYYMMDD)"
+
 
             # Insert into database
             auto_post_id = add_autopost_to_db(post_data)
@@ -692,20 +804,37 @@ def check_pms():
                 post_data['body'] = ""
 
             
+
+            
             lemmy.private_message.create("Hey, " + pm_username + ". \n\n"
                                         "The details for your scheduled post are as follows: \n\n"
                                         "- Community: " + post_data['community'] + "\n\n"
                                         "- Post Title: " + post_data['title'] + "\n"
                                         "- Post Body: " + post_data['body'] + "\n"
                                         "- Post URL: " + post_data['url'] + "\n"
-                                        "- Day: " + post_data['day'] + "\n"
+                                        "- " + dtype + ": " + post_data['day'] + "\n"
                                         "- Time (UTC): " + post_data['time'] + "\n"
                                         "- Frequency: " + post_data['frequency'] + "\n"
                                         "- Your next post date is: " + str(next_post_date) + "\n\n"
-                                        "- The ID for this autopost is: " + str(auto_post_id) + ". (Keep this safe as you will need it to cancel your autopost in the future!)"
+                                        "- The ID for this autopost is: " + str(auto_post_id) + ". (Keep this safe as you will need it to cancel your autopost in the future, if you've set up for a repeating schedule.)"
                                         "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
+
+        if pm_context.split(" ")[0] == "#autopostdelete":
+            pin_id = pm_context.split(" ")[1]
+
+            delete_conf = delete_autopost(pin_id, pm_sender)
+
+            if delete_conf == "deleted":
+                lemmy.private_message.create("Hey, " + pm_username + ". Your pinned autopost (with ID " + pin_id + ") has been successfully deleted."
+                "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
+            
+            if delete_conf == "not deleted":
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
 
 
         if pm_context == "#purgevotes":
@@ -1024,7 +1153,8 @@ def game_news():
     #url of rss feeds
     rss_urls = [
         "https://www.gameinformer.com/news.xml",
-        "https://www.rockpapershotgun.com/feed/news"
+        "https://www.rockpapershotgun.com/feed/news",
+        "https://www.gamingonlinux.com/article_rss.php"
     ]
     for rss_url in rss_urls:
         feed = feedparser.parse(rss_url)
@@ -1042,8 +1172,8 @@ def add_news_to_db(article_title, article_date):
     try:
         with connect_to_news_db() as conn:
             #check if news article was already published
-            news_query = '''SELECT article_title, article_date FROM game_news WHERE article_title=? AND article_date=?'''
-            news_match = execute_sql_query(conn, news_query, (article_title,article_date,))
+            news_query = '''SELECT article_title FROM game_news WHERE article_title=? '''
+            news_match = execute_sql_query(conn, news_query, (article_title,))
 
             if news_match:
                 return "duplicate"
@@ -1390,17 +1520,21 @@ def check_reports():
 
 def get_next_post_date(day, time, frequency):
     # Map days to integers
+
+    day = day.lower()
+    
     days = {
-        'Monday': 0,
-        'Tuesday': 1,
-        'Wednesday': 2,
-        'Thursday': 3,
-        'Friday': 4,
-        'Saturday': 5,
-        'Sunday': 6
+        'monday': 0,
+        'tuesday': 1,
+        'wednesday': 2,
+        'thursday': 3,
+        'friday': 4,
+        'saturday': 5,
+        'sunday': 6
     }
     # Frequency mapping 
     frequency_mapping = {
+        'once': 0,
         'weekly': 7,
         'fortnightly': 14,
         '4weekly': 28  # Every 4 weeks
@@ -1427,10 +1561,14 @@ def get_next_post_date(day, time, frequency):
 def calc_next_post_date(old_post_date, frequency):
     # Map frequency to days
     frequency_mapping = {
+        'once': 0,
         'weekly': 7,
         'fortnightly': 14,
         '4weekly': 28
     }
+
+    if frequency == 'once':
+        return "delete"
 
     # Get the number of days to add for the given frequency
     days_to_add = frequency_mapping.get(frequency, 7)
@@ -1513,6 +1651,13 @@ def check_scheduled_posts():
                 #need to work out when to make the next post
                 old_post_date = stored_datetime
                 next_post_date = calc_next_post_date(old_post_date, post_frequency)
+                #check for "once" posts
+                if next_post_date == 'delete':
+                    query = "DELETE FROM com_posts WHERE pin_id = ?"
+                    cursor.execute(query, (record_id,))
+                    conn.commit
+                    continue
+
                 query = "UPDATE com_posts SET scheduled_post = ? WHERE pin_id = ?"
                 cursor.execute(query, (next_post_date, record_id))
                 conn.commit()
