@@ -1550,8 +1550,9 @@ def get_next_post_date(day, time, frequency):
     if days_until_next == 0:
         days_until_next = 7
 
-    # Adjust for frequency
-    days_until_next += frequency_mapping.get(frequency, 7) - 7
+    # Adjust for frequency only if the next posting date is not today
+    if days_until_next != 0:
+        days_until_next += frequency_mapping.get(frequency, 7)
 
     # Combine date and time
     next_post_datetime = today + timedelta(days=days_until_next)
