@@ -23,6 +23,7 @@ COPY config.py .
 COPY main.py .
 COPY .env .
 COPY resources/ ./resources/
+COPY pythorhead/ ./pythorhead
 
 # Install any needed packages specified in requirements.txt
 RUN pip3 install --no-cache-dir -r requirements.txt

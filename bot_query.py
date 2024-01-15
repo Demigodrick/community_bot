@@ -275,8 +275,18 @@ def delete_autopost(pin_id, pm_sender):
         logging.error(f"An error occurred: {e}")
         return "error"
 
-        
-
+def clear_notifications():
+    try:
+        notif = lemmy.comment.get_replies(True,1)
+        all_notifs = notif['replies']
+    except:
+        logging.info("Error with connection, retrying...")
+        login()
+        return
+    
+    for notif in all_notifs:
+        reply_id = notif['comment_reply']['id']
+        lemmy.comment.mark_as_read(reply_id,True)
 
 def check_pms():
     try:
@@ -301,6 +311,11 @@ def check_pms():
 
         #open to anyone on lemmy. handles urgent mod reports.
         split_context = pm_context.split(" -")
+
+        #first make sure the pm isn't coming from zippy otherwise it'll put zippy in a loop.
+        if pm_sender == settings.BOT_ID:
+            lemmy.private_message.mark_as_read(pm_id, True)
+            continue
 
         # Check if the first part of the split contains '#urgent'
         if "#urgent" in split_context[0] or "> #urgent" in split_context[0]:
@@ -868,11 +883,18 @@ def check_pms():
             continue
 
 def is_spam_email(email, spam_domains):
-    # Split the email address at '@' and take the second half (i.e., the domain)
+    
+    # Count the number of digits in the email
+    num_count = sum(char.isdigit() for char in email)
+
+    # Split the email address at '@' to extract the domain
     domain = email.split('@')[1]
+
+    # Logging the domain for debugging
     logging.info("Checking spam email with domain: " + domain)
-    # Check if the domain is in the list of spam domains
-    return domain in spam_domains
+
+    # Check if the email is spam based on the number of digits or if the domain is a known spam domain
+    return num_count > 2 or domain in spam_domains
 
 def get_new_users():
     spam_domains = set()  # Initialize an empty set
@@ -911,8 +933,8 @@ def get_new_users():
             # Check if the email is from a known spam domain     
             if is_spam_email(email, spam_domains):
                 logging.info("User " + username + " tried to register with a spam email: " + email)
-                lemmy.private_message.create("Hello, new user " + username + " with ID " + str(public_user_id) + " has signed up with a temporary/spam email address (" + email + "). Please manually review before approving.", 2)
-                lemmy.private_message.create("Hello, new user " + username + " with ID " + str(public_user_id) + " has signed up with a temporary/spam email address (" + email + "). Please manually review before approving.", 16340)   
+                lemmy.private_message.create("Hello, new user [" + username + "](https://" + settings.INSTANCE + "/u/" + username + ") with ID " + str(public_user_id) + " has signed up with a temporary/spam email address (" + email + "). Please manually review before approving.", 2)
+                lemmy.private_message.create("Hello, new user [" + username + "](https://" + settings.INSTANCE + "/u/" + username + ") with ID " + str(public_user_id) + " has signed up with a temporary/spam email address (" + email + "). Please manually review before approving.", 16340)   
 
             if settings.EMAIL_FUNCTION == True:    
                 welcome_email(email)
@@ -1547,12 +1569,8 @@ def get_next_post_date(day, time, frequency):
 
     # Calculate days until the next target day
     days_until_next = (target_weekday - today_weekday + 7) % 7
-    if days_until_next == 0:
-        days_until_next = 7
-
-    # Adjust for frequency only if the next posting date is not today
-    if days_until_next != 0:
-        days_until_next += frequency_mapping.get(frequency, 7)
+    if days_until_next == 0 and frequency != 'once':
+        days_until_next = frequency_mapping.get(frequency, 7)
 
     # Combine date and time
     next_post_datetime = today + timedelta(days=days_until_next)
@@ -1580,7 +1598,7 @@ def calc_next_post_date(old_post_date, frequency):
     return new_post_date
 
 def check_scheduled_posts():
-    #first get current time/date in UTC
+    # First get current time/date in UTC
     current_utc = datetime.now(timezone.utc)
 
     #second connect to DB and check all rows for a matching time/data parameter

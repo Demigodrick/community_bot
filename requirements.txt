@@ -12,5 +12,4 @@ urllib3==2.0.3
 feedparser==6.0.11
 matrix-nio[e2e]==0.22.1
 semver>=3.0.2
-pythorhead==0.20.0
 pytz>=2023.3
