@@ -551,17 +551,17 @@ def check_pms():
 
         if pm_context.split(" -")[0] == "#takeover":
             if user_admin == True:
-                community_name = pm_context.split("-")[1]
-                user_id = pm_context.split("-")[2]
+                community_name = pm_context.split("-")[1].strip()
+                user_id = pm_context.split("-")[2].strip()
                 
                 if user_id == "self":
                     user_id = pm_id
 
-                check_community = lemmy.discover_community(community_name)
-                print (community_name)
-                print (check_community)
+                community_id = lemmy.discover_community(community_name)
 
-                if check_community is None:
+                logging.info("Request for community " + community_name + " to be transferred to " + user_id)
+
+                if community_id is None:
                     lemmy.private_message.create("Hey, " + pm_username + ". Sorry, I can't find the community you've requested.", pm_sender)
                     lemmy.private_message.mark_as_read(pm_id, True)
                     continue
@@ -932,9 +932,9 @@ def get_new_users():
             
             # Check if the email is from a known spam domain     
             if is_spam_email(email, spam_domains):
-                logging.info("User " + username + " tried to register with a spam email: " + email)
-                lemmy.private_message.create("Hello, new user [" + username + "](https://" + settings.INSTANCE + "/u/" + username + ") with ID " + str(public_user_id) + " has signed up with a temporary/spam email address (" + email + "). Please manually review before approving.", 2)
-                lemmy.private_message.create("Hello, new user [" + username + "](https://" + settings.INSTANCE + "/u/" + username + ") with ID " + str(public_user_id) + " has signed up with a temporary/spam email address (" + email + "). Please manually review before approving.", 16340)   
+                logging.info("User " + username + " tried to register with a potential spam email: " + email)
+                lemmy.private_message.create("Hello, new user [" + username + "](https://" + settings.INSTANCE + "/u/" + username + ") with ID " + str(public_user_id) + " has signed up with an email address that may be a temporary or spam email address: (" + email + "). Please manually review before approving.", 2)
+                lemmy.private_message.create("Hello, new user [" + username + "](https://" + settings.INSTANCE + "/u/" + username + ") with ID " + str(public_user_id) + " has signed up with an email address that may be a temporary or spam email address: (" + email + "). Please manually review before approving.", 16340)   
 
             if settings.EMAIL_FUNCTION == True:    
                 welcome_email(email)
