@@ -566,8 +566,8 @@ def check_pms():
                     lemmy.private_message.mark_as_read(pm_id, True)
                     continue
                 
-                lemmy.community.add_mod_to_community(True, community_id, user_id)
-                lemmy.private_message.create("Confirmation: " + community_name + "(" + community_id + ") has been taken over by user id + " + user_id, pm_sender)
+                lemmy.community.add_mod_to_community(True, community_id=int(community_id), person_id=int(user_id))
+                lemmy.private_message.create("Confirmation: " + community_name + "(" + str(community_id) + ") has been taken over by user id " + str(user_id), pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
    
