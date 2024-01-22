@@ -1236,7 +1236,7 @@ def add_deal_to_db(deal_title, deal_published):
         return "error"
     
 def check_comments():
-    recent_comments = lemmy.comment.list(limit=10,type_=ListingType.Local)
+    recent_comments = lemmy.comment.list(limit=10, sort=SortType.New, type_=ListingType.Local)
     for comment in recent_comments:
         comment_id = comment['comment']['id']
         comment_text = comment['comment']['content']
@@ -1289,7 +1289,7 @@ def connect_to_mod_db():
     return sqlite3.connect('resources/mod_actions.db')
 
 def check_posts():
-    recent_posts = lemmy.post.list(limit=10,type_=ListingType.Local)
+    recent_posts = lemmy.post.list(limit=10,sort=SortType.New,type_=ListingType.Local)
     for post in recent_posts:
         post_id = post['post']['id']
         post_title = post['post']['name']

@@ -6,7 +6,7 @@ import time
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 logging.info("Hello! Bot starting...")
-logging.info("Bot Version 0.3.12")
+logging.info("Bot Version 0.3.13")
 
 if __name__ == "__main__":
     
@@ -31,8 +31,8 @@ if __name__ == "__main__":
 
     #optional 
     if settings.SLUR_ENABLED == True:
-        schedule.every(5).seconds.do(check_comments)
-        schedule.every(5).seconds.do(check_posts)
+        schedule.every(10).seconds.do(check_comments)
+        schedule.every(10).seconds.do(check_posts)
 
 while True:
     schedule.run_pending()
