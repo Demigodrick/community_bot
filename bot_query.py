@@ -1246,7 +1246,7 @@ def check_comments():
         if check_comment_db(comment_id) == "duplicate":
             continue
         
-        regex_pattern = r'((f(a|4)g(got|g)?){1,}|ni((g{2,}|q)+|[gq]{2,})[e3r]+(s|z)?|dindu(s?){1,}|mudslime?s?|kikes?|\bspi(c|k)s?\b|\bchinks?|gooks?|\btr(a|@)nn?(y|(i|1|l)es?|ers?)|(tr(a|@)nn?(y|(i|1|l)es?|ers?)){1,}|(towel\s*heads?){1,}|be(a|@|4)ners?|\bjaps?\b|(japs){2,}|\bcoons?\b|(coons?){2,}|\bpakis?\b|(pakis?){2,}|(porch\s?monkey){1,}|\bching\s?chong\b|(ching\s?chong\s?){1,}|(curry\s?munchers?))'
+        regex_pattern = re.compile(settings.SLUR_REGEX)
         if re.search(regex_pattern,comment_text):
             #matching word found
             lemmy.comment.report(comment_id,reason="Word in comment appears on slur list - Automated report by ZippyBot")
@@ -1306,7 +1306,7 @@ def check_posts():
         if check_post_db(post_id) == "duplicate":
             continue
 
-        regex_pattern = r'((f(a|4)g(got|g)?){1,}|ni((g{2,}|q)+|[gq]{2,})[e3r]+(s|z)?|dindu(s?){1,}|mudslime?s?|kikes?|\bspi(c|k)s?\b|\bchinks?|gooks?|\btr(a|@)nn?(y|(i|1|l)es?|ers?)|(tr(a|@)nn?(y|(i|1|l)es?|ers?)){1,}|(towel\s*heads?){1,}|be(a|@|4)ners?|\bjaps?\b|(japs){2,}|\bcoons?\b|(coons?){2,}|\bpakis?\b|(pakis?){2,}|(porch\s?monkey){1,}|\bching\s?chong\b|(ching\s?chong\s?){1,}|(curry\s?munchers?))'
+        regex_pattern = re.compile(settings.SLUR_REGEX)
         match_found = False
 
         if re.search(regex_pattern,post_text):

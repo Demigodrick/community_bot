@@ -15,6 +15,7 @@ class Settings(BaseSettings):
     SENDER_PASSWORD: str
     SURVEY_CODE: str
     SLUR_ENABLED: bool
+    SLUR_REGEX: str
     MATRIX_API_KEY: str
     MATRIX_ROOM_ID: str
 
