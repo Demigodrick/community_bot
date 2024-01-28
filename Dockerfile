@@ -5,8 +5,8 @@ FROM python:3.11-slim
 WORKDIR /bot
 
 # Install system dependencies required for Rust
-RUN apt-get update && apt-get install -y curl gcc libssl-dev pkg-config && \
-    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
+#RUN apt-get update && apt-get install -y curl gcc libssl-dev pkg-config && \
+#    curl --proto '=https' --tlsv1.2 -sSf https://sh.rustup.rs | sh -s -- -y
 
 # Add Cargo to PATH
 ENV PATH="/root/.cargo/bin:$PATH"
@@ -19,11 +19,11 @@ RUN python3 -m pip install --upgrade pip
 # Copy the current directory contents into the container at /bot
 COPY requirements.txt .
 COPY bot_query.py .
+COPY bot_strings.py .
 COPY config.py .
 COPY main.py .
 COPY .env .
 COPY resources/ ./resources/
-COPY pythorhead/ ./pythorhead
 
 # Install any needed packages specified in requirements.txt
 RUN pip3 install --no-cache-dir -r requirements.txt

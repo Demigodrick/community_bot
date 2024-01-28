@@ -13,6 +13,7 @@ import re
 import asyncio
 from nio import AsyncClient, MatrixRoom, RoomMessageText
 import pytz
+import bot_strings
 
 import smtplib
 from email.mime.text import MIMEText
@@ -242,7 +243,7 @@ def delete_autopost(pin_id, pm_sender):
             #check it has not already been deleted
             if community_name == None:
                 lemmy.private_message.create("Hey, " + pm_username + ". A scheduled post with this ID does not exist."
-                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                            "\n \n" + bot_strings.PM_SIGNOFF, pm_sender)
                 return "not deleted"   
 
             #check if delete request came from original author
@@ -268,7 +269,7 @@ def delete_autopost(pin_id, pm_sender):
             if not is_moderator:
                 # If pm_sender is not a moderator, send a private message
                 lemmy.private_message.create("Hey, " + pm_username + ". As you are not the moderator of this community, you are not able to delete a scheduled post for it."
-                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                            "\n \n" + bot_strings.PM_SIGNOFF, pm_sender)
                 return "not deleted"       
 
     except Exception as e:
@@ -336,10 +337,10 @@ def check_pms():
                             #check reporter_id matches pm_sender to stop someone spamming id numbers
                             if reporter_id == pm_sender:
                             #write message to send to matrix
-                                matrix_body = "Hello, there has been an urgent report from " + reporter_name + " regarding a post at https://lemmy.zip/post/" + str(post_id) + ". The user gave the report reason: " + report_reason + " - Please review urgently."
+                                matrix_body = "Hello, there has been an urgent report from " + reporter_name + " regarding a post at https://" + settings.INSTANCE + "/post/" + str(post_id) + ". The user gave the report reason: " + report_reason + " - Please review urgently."
                                 asyncio.run(send_matrix_message(matrix_body))
                                 lemmy.private_message.create("Hey " + pm_username +", thanks for the urgent report - We'll get right on it. "
-                                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                                            "\n \n" + bot_strings.PM_SIGNOFF, pm_sender)
                                 lemmy.private_message.mark_as_read(pm_id, True)
                             else:
                                 lemmy.private_message.mark_as_read(pm_id, True)
@@ -363,10 +364,10 @@ def check_pms():
                             #check reporter_id matches pm_sender to stop someone spamming id numbers
                             if reporter_id == pm_sender:
                             #write message to send to matrix
-                                matrix_body = "Hello, there has been an urgent report from " + reporter_name + " regarding a comment at https://lemmy.zip/comment/" + str(comment_id) + ". The user gave the report reason: " + report_reason + " - Please review urgently."
+                                matrix_body = "Hello, there has been an urgent report from " + reporter_name + " regarding a comment at https://" + settings.INSTANCE + "/comment/" + str(comment_id) + ". The user gave the report reason: " + report_reason + " - Please review urgently."
                                 asyncio.run(send_matrix_message(matrix_body))
                                 lemmy.private_message.create("Hey " + pm_username +", thanks for the urgent report - We'll get right on it. "
-                                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                                            "\n \n" + bot_strings.PM_SIGNOFF, pm_sender)
                                 lemmy.private_message.mark_as_read(pm_id, True)
                             else:
                                 lemmy.private_message.mark_as_read(pm_id, True)
@@ -386,7 +387,7 @@ def check_pms():
         #IMPORTANT keep this here - only put reply code above that you want ANYONE ON LEMMY/FEDIVERSE TO BE ABLE TO ACCESS outside of your instance when they message your bot.
         if user_local != settings.LOCAL:
             lemmy.private_message.create("Hey, " + pm_username + f". This bot is only for users of {settings.INSTANCE}. "
-                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                            "\n \n" + bot_strings.PM_SIGNOFF, pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
@@ -403,7 +404,7 @@ def check_pms():
                                                                             "- `#closepoll` - Close an existing poll using the poll ID number, for example `#closepoll @1`\n" 
                                                                             "- `#countpoll` - Get a total of the responses to a poll using a poll ID number, for example `#countpoll @1` \n"
                                                                             "- `#takeover` - Add a user as a mod to an existing community. Command is `#takeover` followed by these identifiers in this order: `-community_name` then `-user_id` (use `-self` here if you want to apply this to yourself) \n"
-                                                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                                                            "\n \n" + bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
             else:
@@ -413,7 +414,7 @@ def check_pms():
                                                                             "- `#vote` - Vote on an active poll. You'll need to have a vote ID number. An example vote would be `#vote 1 yes` or `#vote 1 no`.\n" 
                                                                             "- `#credits` - See who spent their time making this bot work! \n"
                                                                             "- `#autopost` - If you moderate a community, you can schedule an automatic post using this option. Use `#autoposthelp` for a full command list."
-                                                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                                                            "\n \n" + bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
 
@@ -434,7 +435,7 @@ def check_pms():
                                                                     "- `%w` - This will be replaced by the day of the week, i.e. `Monday`.\n\n"
                                                                     "For example, having `-t Weekly Thread %d %m` might be created as `Weekly Thread 12 June` depending on the day it is posted. \n\n"
                                                                     "Finally, if you want to delete a scheduled autopost, use the command `#autopostdelete` with the ID number of the autopost, i.e. `#autopostdelete 1`. "
-                                                                    "\n \n If you need any further help getting this working, please contact [Demigodrick](/u/demigodrick@lemmy.zip).", pm_sender)
+                                                                    "\n \n" + bot_strings.AUTOPOST_HELP, pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
@@ -458,7 +459,7 @@ def check_pms():
                                                                     "- Don’t be overtly aggressive towards anyone\n"
                                                                     "- Try and share ideas, thoughts and criticisms in a constructive way\n"
                                                                     "- Tag any NSFW posts as such"                                       
-                                                                    "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                                                    "\n \n" + bot_strings.PM_SIGNOFF, pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
@@ -468,15 +469,14 @@ def check_pms():
                                                                 "- Demigodrick - Original Creator\n"
                                                                 "- Sami - Support with original idea and implementation \n"
                                                                 "- TheDuude (sh.itjust.works) - Refactoring of code and support with improving inital implementation \n"
-                                                                "- efwis - code contributions regarding new user database \n\n"
-                                                                "I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                                                "- efwis - code contributions regarding new user database \n"
+                                                                "- Db0 - For Pythorhead, which this bot is built with! \n\n" + bot_strings.PM_SIGNOFF, pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
         if pm_context == "#feedback":
             lemmy.private_message.create("Hey, " + pm_username + ". The access code for the feedback survey is `" + settings.SURVEY_CODE + "`. \n"
-                                                                    "You can access the survey by [clicking here](https://feedback.lemmy.zip) and selecting the available survey. \n\n"
-                                                                "I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                                                    "You can access the survey by [clicking here](" + bot_strings.FEEDBACK_URL + ") and selecting the available survey. \n\n" + bot_strings.PM_SIGNOFF, pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
@@ -484,12 +484,10 @@ def check_pms():
             status = "unsub"
             if broadcast_status(pm_sender, status) == "successful":
                 lemmy.private_message.create("Hey, " + pm_username + ". \n \n"
-                                             "Your unsubscribe request was successful. You can resubscribe at any time by sending me a message with `#subscribe`. \n\n"
-                                             "I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                             "Your unsubscribe request was successful. You can resubscribe at any time by sending me a message with `#subscribe`. \n\n" + bot_strings.PM_SIGNOFF, pm_sender)
             else:
                 lemmy.private_message.create("Hey, " + pm_username + ". \n \n"
-                                             "Sorry, something went wrong with your request :( \n\n"
-                                             "Please message [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip) directly to let them know, and they'll sort it out for you.")
+                                             "Sorry, something went wrong with your request :( \n\n" + bot_strings.SUB_ERROR)
                 
             lemmy.private_message.mark_as_read(pm_id,True)
             continue
@@ -498,12 +496,10 @@ def check_pms():
             status = "sub"
             if broadcast_status(pm_sender, status) == "successful":
                 lemmy.private_message.create("Hey, " + pm_username + ". \n \n"
-                                             "Your subscribe request was successful. You can unsubscribe at any time by sending me a message with `#unsubscribe`. \n\n"
-                                             "I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                             "Your subscribe request was successful. You can unsubscribe at any time by sending me a message with `#unsubscribe`. \n\n" + bot_strings.PM_SIGNOFF, pm_sender)
             else:
                 lemmy.private_message.create("Hey, " + pm_username + ". \n \n"
-                                             "Sorry, something went wrong with your request :( \n\n"
-                                             "Please message [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip) directly to let them know, and they'll sort it out for you.")
+                                             "Sorry, something went wrong with your request :( \n\n" + bot_strings.SUB_ERROR, pm_sender)
                 
             lemmy.private_message.mark_as_read(pm_id,True)
             continue
@@ -579,25 +575,25 @@ def check_pms():
 
             if db_response == "duplicate":
                 lemmy.private_message.create("Hey, " + pm_username + ". Oops! It looks like you've already voted on this poll. Votes can only be counted once. " 
-                                                                 "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                                                 "\n \n" + bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
 
             if db_response == "notvalid":
                 lemmy.private_message.create("Hey, " + pm_username + ". Oops! It doesn't look like the poll you've tried to vote on exists. Please double check the vote ID and try again." 
-                                                                 "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                                                 "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
 
             if db_response == "closed":
                 lemmy.private_message.create("Hey, " + pm_username + ". Sorry, it appears the poll you're trying to vote on is now closed. Please double check the vote ID and try again." 
-                                                                 "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                                                 "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
 
             else:
                 lemmy.private_message.create("Hey, " + pm_username + ". Your vote has been counted on the '" + db_response + "' poll. Thank you for voting! " 
-                                                                 "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                                                 "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
 
@@ -607,12 +603,12 @@ def check_pms():
                 poll_name = pm_context.split("@")[1]
                 poll_id = create_poll(poll_name, pm_username) 
                 lemmy.private_message.create("Hey, " + pm_username + ". Your poll has been created with ID number " + str(poll_id) + ". You can now give this ID to people and they can now cast a vote using the `#vote` operator." 
-                                                                 "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                                                 "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
             else:
                 lemmy.private_message.create("Hey, " + pm_username + ". You need to be an instance admin in order to create a poll."
-                                                                 "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                                                 "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
         
@@ -621,12 +617,12 @@ def check_pms():
                 poll_id = pm_context.split("@")[1]
                 if close_poll(poll_id) == "closed":
                     lemmy.private_message.create("Hey, " + pm_username + ". Your poll (ID = " + poll_id + ") has been closed"
-                                                                 "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                                                 "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                     lemmy.private_message.mark_as_read(pm_id, True)
                     continue
                 else:
                     lemmy.private_message.create("Hey, " + pm_username + ". I couldn't close that poll due to an error."
-                                                                 "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                                                 "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                     lemmy.private_message.mark_as_read(pm_id, True)
                     continue
         
@@ -635,7 +631,7 @@ def check_pms():
                 poll_id = pm_context.split("@")[1]
                 yes_votes, no_votes = count_votes(poll_id)
                 lemmy.private_message.create("Hey, " + pm_username + ". There are " + str(yes_votes) + " yes votes and " + str(no_votes) + " no votes on that poll."
-                                                                 "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                                                 "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
             else:
@@ -690,7 +686,7 @@ def check_pms():
             #check mandatory fields
             if post_data['community'] == None:
                 lemmy.private_message.create("Hey, " + pm_username + ". In order to use this command, you will need to specify a community with the `-c` flag, i.e. `-c gaming`."
-                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                            "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
 
@@ -702,19 +698,19 @@ def check_pms():
                                             "- %y (Year - i.e. 2023) \n"
                                             "- %w (Weekday - i.e. Monday) \n\n"
                                             "For example, `Gaming Thread %w %d %m %y` would give you a title of `Gaming Thread Monday 12 June 2023`."
-                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                            "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
 
             if post_data['day'] == None:
                 lemmy.private_message.create("Hey, " + pm_username + ". In order to use this command, you will need to specify a day of the week with the `-d` flag, i.e. `-d monday`, or a specific date you want the first post to be posted in YYYYMMDD format, i.e. `-d 20230612."
-                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                            "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
 
             if post_data['time'] == None:
                 lemmy.private_message.create("Hey, " + pm_username + ". In order to use this command, you will need to specify a time with the `-h` flag, i.e. `-h 07:30` Remember all times are UTC!."
-                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                            "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
 
@@ -725,7 +721,7 @@ def check_pms():
                                             "- weekly (every 7 days) \n"
                                             "- fortnightly (every 14 days) \n"
                                             "- 4weekly (every 28 days)"
-                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                            "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
             
@@ -736,7 +732,7 @@ def check_pms():
                                             "- weekly (every 7 days) \n"
                                             "- fortnightly (every 14 days) \n"
                                             "- 4weekly (every 28 days)"
-                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                            "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
 
@@ -747,7 +743,7 @@ def check_pms():
 
             if output == None:
                 lemmy.private_message.create("Hey, " + pm_username + ". The community you requested can't be found. Please double check the spelling and name and try again."
-                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                            "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
             
@@ -762,7 +758,7 @@ def check_pms():
             if not is_moderator:
                 # If pm_sender is not a moderator, send a private message
                 lemmy.private_message.create("Hey, " + pm_username + ". As you are not the moderator of this community, you are not able to create a scheduled post for it."
-                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                            "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
             
@@ -775,7 +771,7 @@ def check_pms():
                 # Check if the date is in the past
                 if parsed_date.date() < datetime.now().date():
                     lemmy.private_message.create("Hey, " + pm_username + ". The date of the post you scheduled is in the past. Unfortunately I don't have a time machine :( \n\n"
-                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                            "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                     lemmy.private_message.mark_as_read(pm_id, True)
                     continue
                 else:
@@ -787,7 +783,7 @@ def check_pms():
                     day_type = "day"
                 else:
                     lemmy.private_message.create("Hey, " + pm_username + ". Sorry, I can't work out when you want your post scheduled. Please pick a day of the week or specify a date you want recurring posts to start! Remember dates should be in YYYYMMDD format. \n\n"
-                                            "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                            "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                     lemmy.private_message.mark_as_read(pm_id, True)
                     continue
 
@@ -832,7 +828,7 @@ def check_pms():
                                         "- Frequency: " + post_data['frequency'] + "\n"
                                         "- Your next post date is: " + str(next_post_date) + "\n\n"
                                         "- The ID for this autopost is: " + str(auto_post_id) + ". (Keep this safe as you will need it to cancel your autopost in the future, if you've set up for a repeating schedule.)"
-                                        "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                                        "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
@@ -843,7 +839,7 @@ def check_pms():
 
             if delete_conf == "deleted":
                 lemmy.private_message.create("Hey, " + pm_username + ". Your pinned autopost (with ID " + pin_id + ") has been successfully deleted."
-                "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+                "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
             
@@ -873,12 +869,7 @@ def check_pms():
 
         #keep this at the bottom
         else:
-            lemmy.private_message.create("Hey, " + pm_username + ". Sorry, I did not understand your request. Please "
-                                                                 "try again or use `#help` for a list of commands. \n "
-                                                                 "\n I am a Bot. If you have any queries, "
-                                                                 "please contact [Demigodrick]("
-                                                                 "/u/demigodrick@lemmy.zip) or [Sami]("
-                                                                 "/u/sami@lemmy.zip). Beep Boop.", pm_sender)
+            lemmy.private_message.create("Hey, " + pm_username + ". Sorry, I did not understand your request. Please try again or use `#help` for a list of commands. \n \n" + bot_strings.PM_SIGNOFF, pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
@@ -928,13 +919,17 @@ def get_new_users():
                                                                 "Want to change the theme of the site? You can go to your [profile settings](https://lemmy.zip/settings) (or click the dropdown by your username and select Settings) and scroll down to theme. You'll find a list of themes you can try out and see which one you like the most! \n \n"
                                                                 "You can also set a Display Name that is different from your account username by updating the Display Name field. By default, your Display Name will show up to other users as `@your_username`, but by updating this field it will become whatever you want it to be! \n \n"
                                                                 "If you'd like more help, please reply to this message with `#help` for a list of things I can help with. \n \n"
-                                                                "I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip) via email to `hello@lemmy.zip`. Beep Boop. ", public_user_id)
+                                                                "\n \n"+ bot_strings.PM_SIGNOFF, public_user_id)
             
             # Check if the email is from a known spam domain     
             if is_spam_email(email, spam_domains):
                 logging.info("User " + username + " tried to register with a potential spam email: " + email)
-                lemmy.private_message.create("Hello, new user [" + username + "](https://" + settings.INSTANCE + "/u/" + username + ") with ID " + str(public_user_id) + " has signed up with an email address that may be a temporary or spam email address: (" + email + "). Please manually review before approving.", 2)
-                lemmy.private_message.create("Hello, new user [" + username + "](https://" + settings.INSTANCE + "/u/" + username + ") with ID " + str(public_user_id) + " has signed up with an email address that may be a temporary or spam email address: (" + email + "). Please manually review before approving.", 16340)   
+                
+                admin_ids = settings.ADMIN_ID.split(',')
+                pm_message = "Hello, new user [" + username + "](https://" + settings.INSTANCE + "/u/" + username + ") with ID " + str(public_user_id) + " has signed up with an email address that may be a temporary or spam email address: (" + email + "). Please manually review before approving."
+               
+                for admin_id in admin_ids:
+                    lemmy.private_message.create(pm_message, int(admin_id))   
 
             if settings.EMAIL_FUNCTION == True:    
                 welcome_email(email)
@@ -993,21 +988,18 @@ def get_communities():
 
         mods = find_mod['moderators']
 
-        #throwing this in here to help stop nginx timeouts causing errors
-        time.sleep(0.5)
-
         for find_mod in mods:
             mod_id = find_mod['moderator']['id']
             mod_name = find_mod['moderator']['name']
 
         if new_community_db(community_id, community_name) == "community":
-            lemmy.private_message.create("Hey, " + mod_name + ". Congratulations on creating your community, [" + community_name + "](/c/"+community_name+"@lemmy.zip). \n Here are some tips for getting users to subscribe to your new community!\n"
-                                                                "- Try posting a link to your community at [New Communities](/c/newcommunities@lemmy.world).\n"
+            lemmy.private_message.create("Hey, " + mod_name + ". Congratulations on creating your community, [" + community_name + "](/c/"+community_name+"@" + settings.INSTANCE + "). \n Here are some tips for getting users to subscribe to your new community!\n"
+                                                                "- Try posting a link to your community at [New Communities](/c/newcommunities@lemmy.world) and at [CommunityPromo](/c/communityPromo@lemmy.ca)\n"
                                                                 "- You should also add your community to the [Lemmy Community Boost project](https://boost.lemy.lol) so it is automatically shared to a bunch of other instances.\n"
                                                                 "- Ensure your community has some content. Users are more likely to subscribe if content is already available. (5 to 10 posts is usually a good start)\n"
                                                                 "- Consistency is key - you need to post consistently and respond to others to keep engagement with your new community up.\n\n"
                                                                 "I hope this helps!"
-                                                                "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", mod_id)    
+                                                                "\n \n"+ bot_strings.PM_SIGNOFF, mod_id)    
 
 
 def new_community_db(community_id, community_name):
@@ -1085,11 +1077,11 @@ def welcome_email(email):
     message = MIMEMultipart()
     message['From'] = settings.SENDER_EMAIL
     message['To'] = email
-    message['Subject'] = "Thanks for signing up to Lemmy.zip!"
+    message['Subject'] = bot_strings.EMAIL_SUBJECT
 
     #use this for a simple text email, uncomment below:
     #body
-    #body = "Thanks for signing up to Lemmy.zip.\n\n We've received your application and one of our Admins will manually verify your account shortly. \n\n Lemmy.zip prides itself on being a welcoming and inclusive Lemmy instance, and to help reduce spam we manually verify all accounts.\n\n Once your account is accepted, you will receive another email from us confirming this and then you'll be able to log in to your account using the details you set up. You won't be able to login until you've received this confirmation email.\n\n If you've not received an email confirming you have been accepted within a couple of hours, please email hello@lemmy.zip with your username, and we can look into the issue further. Please be patient with us!\n\n Thanks again for signing up to Lemmy.zip, we're excited to welcome you to the Fediverse :)\n\n PS - Once you've logged in, look out for a message from ZippyBot with a guide on how to get started!"
+    #body = bot_strings.EMAIL_SUBJECT + ".\n\n We've received your application and one of our Admins will manually verify your account shortly. \n\n Lemmy.zip prides itself on being a welcoming and inclusive Lemmy instance, and to help reduce spam we manually verify all accounts.\n\n Once your account is accepted, you will receive another email from us confirming this and then you'll be able to log in to your account using the details you set up. You won't be able to login until you've received this confirmation email.\n\n If you've not received an email confirming you have been accepted within a couple of hours, please email hello@lemmy.zip with your username, and we can look into the issue further. Please be patient with us!\n\n Thanks again for signing up to Lemmy.zip, we're excited to welcome you to the Fediverse :)\n\n PS - Once you've logged in, look out for a message from ZippyBot with a guide on how to get started!"
     #message.attach(MIMEText(body, 'plain'))
 
     #use this for sending a HTML email i.e. with pictures and colours.
@@ -1249,7 +1241,7 @@ def check_comments():
         regex_pattern = re.compile(settings.SLUR_REGEX)
         if re.search(regex_pattern,comment_text):
             #matching word found
-            lemmy.comment.report(comment_id,reason="Word in comment appears on slur list - Automated report by ZippyBot")
+            lemmy.comment.report(comment_id,reason="Word in comment appears on slur list - Automated report by " + bot_strings.BOT_NAME)
             mod_action = "Comment Flagged"
             logging.info("Word matching regex found in content, reported.")
         else:
@@ -1316,7 +1308,7 @@ def check_posts():
 
         if match_found == True:
             #matching word found
-            lemmy.post.report(post_id,reason="Word in post by user " + poster_name + " appears on slur list - Automated report by ZippyBot")
+            lemmy.post.report(post_id,reason="Word in post by user " + poster_name + " appears on slur list - Automated report by " + bot_strings.BOT_NAME)
             mod_action = "Post Flagged"
             logging.info("Word matching regex found in content, reported.")
         else:
@@ -1365,7 +1357,7 @@ def broadcast_message(message):
                 public_id, username, subscribed = row
                 try:
                     if subscribed == 1:
-                        lemmy.private_message.create("Hello, " + username + ".\n \n" + message + "\n\n *This is an automated message. To unsubscribe, please reply to this message with* `#unsubscribe`.", public_id) 
+                        lemmy.private_message.create("Hello, " + username + ".\n \n" + message + "\n\n --- \n *This is an automated message. To unsubscribe, please reply to this message with* `#unsubscribe`.", public_id) 
                         time.sleep(0.2)
                 except Exception as e:
                     logging.exception("Message failed to send to " + username)
@@ -1427,32 +1419,23 @@ def post_reports():
 
             if local_user == False:
                 local_post = True
+            
+            if settings.MATRIX_FLAG == False:
+                serious_flag = False
 
             if serious_flag:
                 if not local_post:
-                    report_reply = ("Thank you for submitting your report. \n\n We take each report seriously and ensure it undergoes a thorough manual review. Please note, since the content you reported is not hosted directly on Lemmy.zip," 
-                                    "our ability to take action might be limited if it doesn't violate Lemmy.zip's [Code of Conduct](https://legal.lemmy.zip/docs/code_of_conduct/). \n" 
-                                    "Responsibility for moderation in such cases typically falls to the moderators and admins of the specific local instance where the content is posted.\n\n"
-                                    "However, if you believe the content in question is illegal or demands urgent attention, we urge you to reply to this message immediately with `#urgent -p -" + str(report_id) + "` (copy and paste only this text into the reply box).\n\n" 
-                                    "This will alert our administration team, who will take immediate action as necessary. Your vigilance in helping maintain a safe and respectful community is greatly appreciated.")            
+                    report_reply = bot_strings.POST_REPORT_NOT_LOCAL_URGENT.format(report_id=report_id)         
                 
                 if local_post:
-                    report_reply = ("Thank you for submitting your report. \n\n We value your effort in helping us maintain a safe and respectful community on Lemmy.zip. Every report is taken seriously and undergoes a thorough manual review by our team.\n"
-                                    "We assure you that appropriate actions will be taken based on our [Code of Conduct](https://legal.lemmy.zip/docs/code_of_conduct/).\n\n"
-                                    "In instances where you believe the content is illegal and/or requires urgent intervention (such as CSAM or a threat to life), we urge you to reply to this message immediately with `#urgent -p -" + str(report_id) + "` (copy and paste only this text into the reply box). \n\n"
-                                    "This will alert our administration team who will take immediate action as necessary. Your vigilance in helping maintain a safe and respectful community is greatly appreciated.")
+                    report_reply = bot_strings.POST_REPORT_LOCAL_URGENT.format(report_id=report_id)
                     
             if not serious_flag:
                 if not local_post:
-                    report_reply = ("Thank you for submitting your report. \n\n We take each report seriously and ensure it undergoes a thorough manual review. Please note, since the content you reported is not hosted directly on Lemmy.zip," 
-                                    "our ability to take action might be limited if it doesn't violate Lemmy.zip's [Code of Conduct](https://legal.lemmy.zip/docs/code_of_conduct/). \n" 
-                                    "Responsibility for moderation in such cases typically falls to the moderators and admins of the specific local instance where the content is posted.\n\n" 
-                                    "Your vigilance in helping maintain a safe and respectful community is greatly appreciated.")            
+                    report_reply = bot_strings.REPORT_NOT_LOCAL_NOT_URGENT         
                 
                 if local_post:
-                    report_reply = ("Thank you for submitting your report. \n\n We value your effort in helping us maintain a safe and respectful community on Lemmy.zip. Every report is taken seriously and undergoes a thorough manual review by our team.\n"
-                                    "We assure you that appropriate actions will be taken based on our [Code of Conduct](https://legal.lemmy.zip/docs/code_of_conduct/).\n\n"
-                                    "Your vigilance in helping maintain a safe and respectful community is greatly appreciated.")
+                    report_reply = bot_strings.REPORT_LOCAL_NOT_URGENT
 
             with connect_to_reports_db() as conn:
                 check_reports = '''SELECT report_id FROM post_reports WHERE report_id=?'''
@@ -1464,14 +1447,14 @@ def post_reports():
                     data_tuple = (report_id, creator_id, creator, report_reason, reported_content_id,)
                     execute_sql_query(conn, sqlite_insert_query, data_tuple)
             
-                    lemmy.private_message.create("Hello " + creator + ",\n\n" + report_reply + "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", creator_id)
+                    lemmy.private_message.create("Hello " + creator + ",\n\n" + report_reply + "\n \n" + bot_strings.PM_SIGNOFF, creator_id)
 
 def comment_reports():
     recent_reports = lemmy.comment.report_list(limit=5, unresolved_only="true")
  
 
     #define words in the report that will trigger the urgent message
-    serious_words= ["csam", "illegal", "kill", "suicide"]
+    serious_words = settings.SERIOUS_WORDS.split(',')
 
     for report in recent_reports:
         
@@ -1497,33 +1480,24 @@ def comment_reports():
 
         if local_user == False:
             local_post = True
+            
+        if settings.MATRIX_FLAG == False:
+            serious_flag = False
 
         if serious_flag:
             if not local_post:
-                report_reply = ("Thank you for submitting your report. \n\n We take each report seriously and ensure it undergoes a thorough manual review. Please note, since the content you reported is not hosted directly on Lemmy.zip," 
-                                "our ability to take action might be limited if it doesn't violate Lemmy.zip's [Code of Conduct](https://legal.lemmy.zip/docs/code_of_conduct/). \n" 
-                                "Responsibility for moderation in such cases typically falls to the moderators and admins of the specific local instance where the content is posted.\n\n"
-                                "However, if you believe the content in question is illegal or demands urgent attention, we urge you to reply to this message immediately with `#urgent -c -" + str(report_id) + "` (copy and paste only this text into the reply box).\n\n" 
-                                "This will alert our administration team, who will take immediate action as necessary. Your vigilance in helping maintain a safe and respectful community is greatly appreciated.")            
+                report_reply = bot_strings.COMMENT_REPORT_NOT_LOCAL_URGENT.format(report_id=report_id)         
             
             if local_post:
-                report_reply = ("Thank you for submitting your report. \n\n We value your effort in helping us maintain a safe and respectful community on Lemmy.zip. Every report is taken seriously and undergoes a thorough manual review by our team.\n"
-                                "We assure you that appropriate actions will be taken based on our [Code of Conduct](https://legal.lemmy.zip/docs/code_of_conduct/).\n\n"
-                                "In instances where you believe the content is illegal and/or requires urgent intervention (such as CSAM or a threat to life), we urge you to reply to this message immediately with `#urgent -c -" + str(report_id) + "` (copy and paste only this text into the reply box). \n\n"
-                                "This will alert our administration team who will take immediate action as necessary. Your vigilance in helping maintain a safe and respectful community is greatly appreciated.")
+                report_reply = bot_strings.COMMENT_REPORT_LOCAL_URGENT.format(report_id=report_id)
                 
         if not serious_flag:
             if not local_post:
-                report_reply = ("Thank you for submitting your report. \n\n We take each report seriously and ensure it undergoes a thorough manual review. Please note, since the content you reported is not hosted directly on Lemmy.zip," 
-                                "our ability to take action might be limited if it doesn't violate Lemmy.zip's [Code of Conduct](https://legal.lemmy.zip/docs/code_of_conduct/). \n" 
-                                "Responsibility for moderation in such cases typically falls to the moderators and admins of the specific local instance where the content is posted.\n\n" 
-                                "Your vigilance in helping maintain a safe and respectful community is greatly appreciated.")            
+                report_reply = bot_strings.REPORT_NOT_LOCAL_NOT_URGENT         
             
             if local_post:
-                report_reply = ("Thank you for submitting your report. \n\n We value your effort in helping us maintain a safe and respectful community on Lemmy.zip. Every report is taken seriously and undergoes a thorough manual review by our team.\n"
-                                "We assure you that appropriate actions will be taken based on our [Code of Conduct](https://legal.lemmy.zip/docs/code_of_conduct/).\n\n"
-                                "Your vigilance in helping maintain a safe and respectful community is greatly appreciated.")
-
+                report_reply = bot_strings.REPORT_LOCAL_NOT_URGENT
+                    
         with connect_to_reports_db() as conn:
             check_reports = '''SELECT report_id FROM comment_reports WHERE report_id=?'''
             report_match = execute_sql_query(conn, check_reports, (report_id,))
@@ -1533,7 +1507,7 @@ def comment_reports():
                 data_tuple = (report_id, reporter_id, reporter, report_reason, reported_content_id,)
                 execute_sql_query(conn, sqlite_insert_query, data_tuple)
         
-                lemmy.private_message.create("Hello " + reporter + ",\n\n" + report_reply + "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", reporter_id)
+                lemmy.private_message.create("Hello " + reporter + ",\n\n" + report_reply + "\n \n" + bot_strings.PM_SIGNOFF, reporter_id)
 
 
 def check_reports():
@@ -1686,7 +1660,7 @@ def check_scheduled_posts():
 
 
 async def send_matrix_message(matrix_body):
-    client = AsyncClient("https://matrix.org", "@lemmy-uptime-bot:matrix.org")
+    client = AsyncClient(settings.MATRIX_URL, settings.MATRIX_ACCOUNT)
 
  # Use an access token to log in
     client.access_token = settings.MATRIX_API_KEY

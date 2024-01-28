@@ -16,8 +16,13 @@ class Settings(BaseSettings):
     SURVEY_CODE: str
     SLUR_ENABLED: bool
     SLUR_REGEX: str
+    SERIOUS_WORDS: str
+    MATRIX_FLAG: bool
     MATRIX_API_KEY: str
     MATRIX_ROOM_ID: str
+    MATRIX_URL: str
+    MATRIX_ACCOUNT: str
+    ADMIN_ID: str
 
 
     class Config:

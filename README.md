@@ -1,13 +1,31 @@
-# community_bot
+# Lemmy.zip's Community Bot
+
+Note - this is the Lemmy.zip version. For a version for other Instances to run please use (Lemmy Mod Bot) ##link to go here##
+
+RUNNING THIS VERSION WILL NOT WORK ON YOUR INSTANCE WITHOUT CHANGES.
+(due to hardcoded functions in this version)
 
 
 ## Features
 - Poll feature - Admins can create polls and users can vote on them
 - Help functionality. The bot will PM helpul advice.
 - Welcome PM - the bot scans new applications to the site and sends a PM to the user with helpful info
-- Create a community. The bot will allow a user with a score above one you set to create a community via PM. The bot will add the user as a mod then de-mod itself. Useful for turning off open community applications and allowing trusted members to create communities.
 - Email new users between verifying email stage and admin acceptance stage (so new users don't get confused and think they're locked out of their accounts!)
-- A bunch of other helpful tools for Admins
+- A bunch of other helpful tools for Admins such as matrix notifications on urgent reports, scanning comments and posts for banned words (customisable regex), and allowing community moderators and admins to schedule pinned posts.
+
+
+## Customisation
+Make sure to set the bot account as admin so it can access the user registration and post report functions.
+
+The bot contains a system to allow users to mark reports as urgent via the PM system. This will send a message to matrix. If you don't want to use this system, make sure to set the "MATRIX_FLAG" env setting to "False". If you want to use it, make sure to plug your Matrix room and user details into the env file.
+
+There is also a system for emailing new users - set to false if you don't want this functionality, otherwise put in your SMTP details and ensure you change the EMAIL_SUBJECT string in the "bot_strings.py" file. 
+In the default setup the bot is configured to send a plain text email, but you can review the code in bot_query.py and uncomment the html email code instead (remember to comment out the plain text email code) - include your resources in the 
+/resources folder before building the dockerfile. You can see how I set the email up with images in the code.
+
+
+
+
 
 ## Install
 
