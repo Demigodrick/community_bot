@@ -27,6 +27,7 @@ logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(
 #  anti-spam measure for an ID?
 #  Check applications for declined applications, send email confirming declined. 
 #  Use reason if included otherwise generic text.
+#  Fix pm replies to reports going to offsite reports that are now sent to admins regarding local users.
 
 
 def login():
@@ -242,7 +243,7 @@ def delete_autopost(pin_id, pm_sender):
 
             #check it has not already been deleted
             if community_name == None:
-                lemmy.private_message.create("Hey, " + pm_username + ". A scheduled post with this ID does not exist."
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". A scheduled post with this ID does not exist."
                                             "\n \n" + bot_strings.PM_SIGNOFF, pm_sender)
                 return "not deleted"   
 
@@ -268,7 +269,7 @@ def delete_autopost(pin_id, pm_sender):
 
             if not is_moderator:
                 # If pm_sender is not a moderator, send a private message
-                lemmy.private_message.create("Hey, " + pm_username + ". As you are not the moderator of this community, you are not able to delete a scheduled post for it."
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". As you are not the moderator of this community, you are not able to delete a scheduled post for it."
                                             "\n \n" + bot_strings.PM_SIGNOFF, pm_sender)
                 return "not deleted"       
 
@@ -318,7 +319,7 @@ def check_pms():
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
-        # Check if the first part of the split contains '#urgent'
+        #check if the first part of the split contains '#urgent'
         if "#urgent" in split_context[0] or "> #urgent" in split_context[0]:
             if len(split_context) > 1:
                 context_identifier = split_context[1]
@@ -339,8 +340,7 @@ def check_pms():
                             #write message to send to matrix
                                 matrix_body = "Hello, there has been an urgent report from " + reporter_name + " regarding a post at https://" + settings.INSTANCE + "/post/" + str(post_id) + ". The user gave the report reason: " + report_reason + " - Please review urgently."
                                 asyncio.run(send_matrix_message(matrix_body))
-                                lemmy.private_message.create("Hey " + pm_username +", thanks for the urgent report - We'll get right on it. "
-                                                            "\n \n" + bot_strings.PM_SIGNOFF, pm_sender)
+                                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + bot_strings.URGENT_REPORT_REPLY + bot_strings.PM_SIGNOFF, pm_sender)
                                 lemmy.private_message.mark_as_read(pm_id, True)
                             else:
                                 lemmy.private_message.mark_as_read(pm_id, True)
@@ -366,7 +366,7 @@ def check_pms():
                             #write message to send to matrix
                                 matrix_body = "Hello, there has been an urgent report from " + reporter_name + " regarding a comment at https://" + settings.INSTANCE + "/comment/" + str(comment_id) + ". The user gave the report reason: " + report_reason + " - Please review urgently."
                                 asyncio.run(send_matrix_message(matrix_body))
-                                lemmy.private_message.create("Hey " + pm_username +", thanks for the urgent report - We'll get right on it. "
+                                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username +", thanks for the urgent report - We'll get right on it. "
                                                             "\n \n" + bot_strings.PM_SIGNOFF, pm_sender)
                                 lemmy.private_message.mark_as_read(pm_id, True)
                             else:
@@ -386,40 +386,23 @@ def check_pms():
 
         #IMPORTANT keep this here - only put reply code above that you want ANYONE ON LEMMY/FEDIVERSE TO BE ABLE TO ACCESS outside of your instance when they message your bot.
         if user_local != settings.LOCAL:
-            lemmy.private_message.create("Hey, " + pm_username + f". This bot is only for users of {settings.INSTANCE}. "
+            lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + f". This bot is only for users of {settings.INSTANCE}. "
                                             "\n \n" + bot_strings.PM_SIGNOFF, pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
         if pm_context == "#help":
             if user_admin == True:
-                lemmy.private_message.create("Hey, " + pm_username + ". These are the commands I currently know:" + "\n\n "
-                                                                            "- `#help` - See this message. \n "
-                                                                            "- `#rules` - See the current instance rules. \n"
-                                                                            "- `#vote` - Vote on an active poll. You'll need to have a vote ID number. An example vote would be `#vote 1 yes` or `#vote 1 no`.\n" 
-                                                                            "- `#credits` - See who spent their time making this bot work! \n"
-                                                                            "- `#autopost` - If you moderate a community, you can schedule an automatic post using this option. Use `#autoposthelp` for a full command list."
-                                                                            "\n\n As an Admin, you also have access to the following commands: \n"
-                                                                            "- `#poll` - Create a poll for users to vote on. Give your poll a name, and you will get back an ID number to users so they can vote on your poll. Example usage: `#poll @Vote for best admin` \n"
-                                                                            "- `#closepoll` - Close an existing poll using the poll ID number, for example `#closepoll @1`\n" 
-                                                                            "- `#countpoll` - Get a total of the responses to a poll using a poll ID number, for example `#countpoll @1` \n"
-                                                                            "- `#takeover` - Add a user as a mod to an existing community. Command is `#takeover` followed by these identifiers in this order: `-community_name` then `-user_id` (use `-self` here if you want to apply this to yourself) \n"
-                                                                            "\n \n" + bot_strings.PM_SIGNOFF, pm_sender)
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". " + bot_strings.BOT_COMMANDS + bot_strings.BOT_ADMIN_COMMANDS + bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
             else:
-                lemmy.private_message.create("Hey, " + pm_username + ". These are the commands I currently know:" + "\n\n "
-                                                                            "- `#help` - See this message. \n "
-                                                                            "- `#rules` - See the current instance rules. \n"
-                                                                            "- `#vote` - Vote on an active poll. You'll need to have a vote ID number. An example vote would be `#vote 1 yes` or `#vote 1 no`.\n" 
-                                                                            "- `#credits` - See who spent their time making this bot work! \n"
-                                                                            "- `#autopost` - If you moderate a community, you can schedule an automatic post using this option. Use `#autoposthelp` for a full command list."
-                                                                            "\n \n" + bot_strings.PM_SIGNOFF, pm_sender)
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". "+ bot_strings.BOT_COMMANDS + bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
 
         if pm_context == "#autoposthelp":
-            lemmy.private_message.create("Hey, " + pm_username + ". These are the commands you'll need to schedule an automatic post. Remember, you'll need to be a moderator in the community otherwise this won't work. \n \n"
+            lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". These are the commands you'll need to schedule an automatic post. Remember, you'll need to be a moderator in the community otherwise this won't work. \n \n"
                                                                     "A typical command would look like `#autopost -c community_name -t post_title -b post_body -d day -h time -f frequency` \n"
                                                                     "- `-c` - This defines the name of the community you are setting this up for. This is the original name of the community when you created it. \n"
                                                                     "- `-t` - This defines the title of the post. You can use the modifiers listed below here. \n"
@@ -442,31 +425,14 @@ def check_pms():
 
 
         if pm_context == "#rules":
-            lemmy.private_message.create("Hey, " + pm_username + ". These are the current rules for Lemmy.zip. \n \n"
-                                                                    "- Please abide by the [General Code of Conduct](https://join-lemmy.org/docs/en/code_of_conduct.html) at all times.\n"
-                                                                    "- Remember the human! (no harassment, threats, etc.)\n"
-                                                                    "- No racism or other discrimination\n"
-                                                                    "- No endorsement of hate speech\n"
-                                                                    "- No self-advertisements or spam\n"
-                                                                    "- No link-spamming\n"
-                                                                    "- No content against UK law.\n"
-                                                                    "- Any NSFW post must be tagged as NSFW. Failure to do so will be given one warning only\n"
-                                                                    "- Anything that you wouldn’t want your boss or coworkers to see, needs to be tagged NSFW\n"
-                                                                    "- NSFW also acts as “Content Warning” outside of the specific NSFW communities\n\n"
-                                                                    "Any posts or comments that are in breach of these rules will be dealt with, and remediation will occur. Whether that be a warning, temporary ban, or permanent ban.\n\n"
-                                                                    "(TLDR) The crux of it boils down to:\n"
-                                                                    "- Remember that we are all humans\n"
-                                                                    "- Don’t be overtly aggressive towards anyone\n"
-                                                                    "- Try and share ideas, thoughts and criticisms in a constructive way\n"
-                                                                    "- Tag any NSFW posts as such"                                       
-                                                                    "\n \n" + bot_strings.PM_SIGNOFF, pm_sender)
+            lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". " + bot_strings.INS_RULES + bot_strings.PM_SIGNOFF, pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
 
         if pm_context == "#credits":
-            lemmy.private_message.create("Hey, " + pm_username + ". This bot was built with help and support from various community members and contributers: \n\n"
-                                                                "- Demigodrick - Original Creator\n"
+            lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". This bot was built with help and support from various Lemmy.zip community members and contributers: \n\n"
+                                                                "- [Demigodrick](https://me.lemmy.zip/@demigodrick) - Original Creator\n"
                                                                 "- Sami - Support with original idea and implementation \n"
                                                                 "- TheDuude (sh.itjust.works) - Refactoring of code and support with improving inital implementation \n"
                                                                 "- efwis - code contributions regarding new user database \n"
@@ -475,7 +441,7 @@ def check_pms():
             continue
 
         if pm_context == "#feedback":
-            lemmy.private_message.create("Hey, " + pm_username + ". The access code for the feedback survey is `" + settings.SURVEY_CODE + "`. \n"
+            lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". The access code for the feedback survey is `" + settings.SURVEY_CODE + "`. \n"
                                                                     "You can access the survey by [clicking here](" + bot_strings.FEEDBACK_URL + ") and selecting the available survey. \n\n" + bot_strings.PM_SIGNOFF, pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
@@ -483,10 +449,10 @@ def check_pms():
         if pm_context == "#unsubscribe":
             status = "unsub"
             if broadcast_status(pm_sender, status) == "successful":
-                lemmy.private_message.create("Hey, " + pm_username + ". \n \n"
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". \n \n"
                                              "Your unsubscribe request was successful. You can resubscribe at any time by sending me a message with `#subscribe`. \n\n" + bot_strings.PM_SIGNOFF, pm_sender)
             else:
-                lemmy.private_message.create("Hey, " + pm_username + ". \n \n"
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". \n \n"
                                              "Sorry, something went wrong with your request :( \n\n" + bot_strings.SUB_ERROR)
                 
             lemmy.private_message.mark_as_read(pm_id,True)
@@ -495,10 +461,10 @@ def check_pms():
         if pm_context == "#subscribe":
             status = "sub"
             if broadcast_status(pm_sender, status) == "successful":
-                lemmy.private_message.create("Hey, " + pm_username + ". \n \n"
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". \n \n"
                                              "Your subscribe request was successful. You can unsubscribe at any time by sending me a message with `#unsubscribe`. \n\n" + bot_strings.PM_SIGNOFF, pm_sender)
             else:
-                lemmy.private_message.create("Hey, " + pm_username + ". \n \n"
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". \n \n"
                                              "Sorry, something went wrong with your request :( \n\n" + bot_strings.SUB_ERROR, pm_sender)
                 
             lemmy.private_message.mark_as_read(pm_id,True)
@@ -558,7 +524,7 @@ def check_pms():
                 logging.info("Request for community " + community_name + " to be transferred to " + user_id)
 
                 if community_id is None:
-                    lemmy.private_message.create("Hey, " + pm_username + ". Sorry, I can't find the community you've requested.", pm_sender)
+                    lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". Sorry, I can't find the community you've requested.", pm_sender)
                     lemmy.private_message.mark_as_read(pm_id, True)
                     continue
                 
@@ -574,25 +540,25 @@ def check_pms():
             db_response = add_vote_to_db(pm_username,vote_id,vote_response,pm_account_age) 
 
             if db_response == "duplicate":
-                lemmy.private_message.create("Hey, " + pm_username + ". Oops! It looks like you've already voted on this poll. Votes can only be counted once. " 
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". Oops! It looks like you've already voted on this poll. Votes can only be counted once. " 
                                                                  "\n \n" + bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
 
             if db_response == "notvalid":
-                lemmy.private_message.create("Hey, " + pm_username + ". Oops! It doesn't look like the poll you've tried to vote on exists. Please double check the vote ID and try again." 
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". Oops! It doesn't look like the poll you've tried to vote on exists. Please double check the vote ID and try again." 
                                                                  "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
 
             if db_response == "closed":
-                lemmy.private_message.create("Hey, " + pm_username + ". Sorry, it appears the poll you're trying to vote on is now closed. Please double check the vote ID and try again." 
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". Sorry, it appears the poll you're trying to vote on is now closed. Please double check the vote ID and try again." 
                                                                  "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
 
             else:
-                lemmy.private_message.create("Hey, " + pm_username + ". Your vote has been counted on the '" + db_response + "' poll. Thank you for voting! " 
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". Your vote has been counted on the '" + db_response + "' poll. Thank you for voting! " 
                                                                  "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
@@ -602,12 +568,12 @@ def check_pms():
             if user_admin == True:
                 poll_name = pm_context.split("@")[1]
                 poll_id = create_poll(poll_name, pm_username) 
-                lemmy.private_message.create("Hey, " + pm_username + ". Your poll has been created with ID number " + str(poll_id) + ". You can now give this ID to people and they can now cast a vote using the `#vote` operator." 
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". Your poll has been created with ID number " + str(poll_id) + ". You can now give this ID to people and they can now cast a vote using the `#vote` operator." 
                                                                  "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
             else:
-                lemmy.private_message.create("Hey, " + pm_username + ". You need to be an instance admin in order to create a poll."
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". You need to be an instance admin in order to create a poll."
                                                                  "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
@@ -616,12 +582,12 @@ def check_pms():
             if user_admin == True:
                 poll_id = pm_context.split("@")[1]
                 if close_poll(poll_id) == "closed":
-                    lemmy.private_message.create("Hey, " + pm_username + ". Your poll (ID = " + poll_id + ") has been closed"
+                    lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". Your poll (ID = " + poll_id + ") has been closed"
                                                                  "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                     lemmy.private_message.mark_as_read(pm_id, True)
                     continue
                 else:
-                    lemmy.private_message.create("Hey, " + pm_username + ". I couldn't close that poll due to an error."
+                    lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". I couldn't close that poll due to an error."
                                                                  "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                     lemmy.private_message.mark_as_read(pm_id, True)
                     continue
@@ -630,7 +596,7 @@ def check_pms():
             if user_admin == True:
                 poll_id = pm_context.split("@")[1]
                 yes_votes, no_votes = count_votes(poll_id)
-                lemmy.private_message.create("Hey, " + pm_username + ". There are " + str(yes_votes) + " yes votes and " + str(no_votes) + " no votes on that poll."
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". There are " + str(yes_votes) + " yes votes and " + str(no_votes) + " no votes on that poll."
                                                                  "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
@@ -685,14 +651,14 @@ def check_pms():
 
             #check mandatory fields
             if post_data['community'] == None:
-                lemmy.private_message.create("Hey, " + pm_username + ". In order to use this command, you will need to specify a community with the `-c` flag, i.e. `-c gaming`."
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". In order to use this command, you will need to specify a community with the `-c` flag, i.e. `-c gaming`."
                                             "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
 
 
             if post_data['title'] == None:
-                lemmy.private_message.create("Hey, " + pm_username + ". In order to use this command, you will need to specify a title with the `-t` flag, i.e. `-t Weekly Thread`. You can also use the following commands in the title: \n\n"
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". In order to use this command, you will need to specify a title with the `-t` flag, i.e. `-t Weekly Thread`. You can also use the following commands in the title: \n\n"
                                             "- %d (Day - i.e. 12) \n"
                                             "- %m (Month - i.e. June) \n"
                                             "- %y (Year - i.e. 2023) \n"
@@ -703,19 +669,19 @@ def check_pms():
                 continue
 
             if post_data['day'] == None:
-                lemmy.private_message.create("Hey, " + pm_username + ". In order to use this command, you will need to specify a day of the week with the `-d` flag, i.e. `-d monday`, or a specific date you want the first post to be posted in YYYYMMDD format, i.e. `-d 20230612."
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". In order to use this command, you will need to specify a day of the week with the `-d` flag, i.e. `-d monday`, or a specific date you want the first post to be posted in YYYYMMDD format, i.e. `-d 20230612."
                                             "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
 
             if post_data['time'] == None:
-                lemmy.private_message.create("Hey, " + pm_username + ". In order to use this command, you will need to specify a time with the `-h` flag, i.e. `-h 07:30` Remember all times are UTC!."
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". In order to use this command, you will need to specify a time with the `-h` flag, i.e. `-h 07:30` Remember all times are UTC!."
                                             "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
 
             if post_data['frequency'] == None:
-                lemmy.private_message.create("Hey, " + pm_username + ". In order to use this command, you will need to specify a post frequency with the `-f` flag, i.e. `-f weekly`. \n\n"
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". In order to use this command, you will need to specify a post frequency with the `-f` flag, i.e. `-f weekly`. \n\n"
                                             "You can use the following frequencies: \n"
                                             "- once (the post will only happen once) \n"
                                             "- weekly (every 7 days) \n"
@@ -726,7 +692,7 @@ def check_pms():
                 continue
             
             if post_data['frequency'] not in ["once", "weekly", "fortnightly", "4weekly"]:
-                lemmy.private_message.create("Hey, " + pm_username + ". I couldn't find a valid frequency following the -f flag. \n\n"
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". I couldn't find a valid frequency following the -f flag. \n\n"
                                             "You can use the following frequencies: \n"
                                             "- once (the post will only happen once) \n"
                                             "- weekly (every 7 days) \n"
@@ -742,7 +708,7 @@ def check_pms():
             output = lemmy.community.get(name=post_data['community'])
 
             if output == None:
-                lemmy.private_message.create("Hey, " + pm_username + ". The community you requested can't be found. Please double check the spelling and name and try again."
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". The community you requested can't be found. Please double check the spelling and name and try again."
                                             "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
@@ -757,7 +723,7 @@ def check_pms():
 
             if not is_moderator:
                 # If pm_sender is not a moderator, send a private message
-                lemmy.private_message.create("Hey, " + pm_username + ". As you are not the moderator of this community, you are not able to create a scheduled post for it."
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". As you are not the moderator of this community, you are not able to create a scheduled post for it."
                                             "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
@@ -770,7 +736,7 @@ def check_pms():
                 parsed_date = datetime.strptime(post_data['day'], date_format)
                 # Check if the date is in the past
                 if parsed_date.date() < datetime.now().date():
-                    lemmy.private_message.create("Hey, " + pm_username + ". The date of the post you scheduled is in the past. Unfortunately I don't have a time machine :( \n\n"
+                    lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". The date of the post you scheduled is in the past. Unfortunately I don't have a time machine :( \n\n"
                                             "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                     lemmy.private_message.mark_as_read(pm_id, True)
                     continue
@@ -782,7 +748,7 @@ def check_pms():
                 if post_data['day'].lower() in weekdays:
                     day_type = "day"
                 else:
-                    lemmy.private_message.create("Hey, " + pm_username + ". Sorry, I can't work out when you want your post scheduled. Please pick a day of the week or specify a date you want recurring posts to start! Remember dates should be in YYYYMMDD format. \n\n"
+                    lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". Sorry, I can't work out when you want your post scheduled. Please pick a day of the week or specify a date you want recurring posts to start! Remember dates should be in YYYYMMDD format. \n\n"
                                             "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                     lemmy.private_message.mark_as_read(pm_id, True)
                     continue
@@ -817,7 +783,7 @@ def check_pms():
             
 
             
-            lemmy.private_message.create("Hey, " + pm_username + ". \n\n"
+            lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". \n\n"
                                         "The details for your scheduled post are as follows: \n\n"
                                         "- Community: " + post_data['community'] + "\n\n"
                                         "- Post Title: " + post_data['title'] + "\n"
@@ -838,7 +804,7 @@ def check_pms():
             delete_conf = delete_autopost(pin_id, pm_sender)
 
             if delete_conf == "deleted":
-                lemmy.private_message.create("Hey, " + pm_username + ". Your pinned autopost (with ID " + pin_id + ") has been successfully deleted."
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". Your pinned autopost (with ID " + pin_id + ") has been successfully deleted."
                 "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
@@ -869,7 +835,7 @@ def check_pms():
 
         #keep this at the bottom
         else:
-            lemmy.private_message.create("Hey, " + pm_username + ". Sorry, I did not understand your request. Please try again or use `#help` for a list of commands. \n \n" + bot_strings.PM_SIGNOFF, pm_sender)
+            lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". Sorry, I did not understand your request. Please try again or use `#help` for a list of commands. \n \n" + bot_strings.PM_SIGNOFF, pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
@@ -911,15 +877,7 @@ def get_new_users():
        
         if update_registration_db(local_user_id, username, public_user_id, email) == "new_user":
             logging.debug("sending new user a pm")
-            lemmy.private_message.create("Hey, " + username + ". \n \n # Welcome to Lemmy.zip! \n \n Please take a moment to familiarise yourself with [our Welcome Post](https://lemmy.zip/post/43). (Text that looks like this is a clickable link!) \n \n" 
-                                                                "This post has all the information you'll need to get started on Lemmy, so please have a good read first! \n \n"
-                                                                "Please also take a look at our rules, they are in the sidebar of this instance, or you can view them [here](https://legal.lemmy.zip/docs/code_of_conduct/), or I can send these to you at any time - just send me a message with `#rules`. \n \n"
-                                                                "If you're on a mobile device, you can [tap here](https://m.lemmy.zip) to go straight to our mobile site. \n \n"
-                                                                "Lemmy.zip is 100% funded by user donations, so if you are enjoying your time on Lemmy.zip please [consider donating](https://opencollective.com/lemmyzip).\n \n"
-                                                                "Want to change the theme of the site? You can go to your [profile settings](https://lemmy.zip/settings) (or click the dropdown by your username and select Settings) and scroll down to theme. You'll find a list of themes you can try out and see which one you like the most! \n \n"
-                                                                "You can also set a Display Name that is different from your account username by updating the Display Name field. By default, your Display Name will show up to other users as `@your_username`, but by updating this field it will become whatever you want it to be! \n \n"
-                                                                "If you'd like more help, please reply to this message with `#help` for a list of things I can help with. \n \n"
-                                                                "\n \n"+ bot_strings.PM_SIGNOFF, public_user_id)
+            lemmy.private_message.create(bot_strings.GREETING + " " + username + ". " + bot_strings.WELCOME_MESSAGE + bot_strings.PM_SIGNOFF, public_user_id)
             
             # Check if the email is from a known spam domain     
             if is_spam_email(email, spam_domains):
@@ -993,13 +951,7 @@ def get_communities():
             mod_name = find_mod['moderator']['name']
 
         if new_community_db(community_id, community_name) == "community":
-            lemmy.private_message.create("Hey, " + mod_name + ". Congratulations on creating your community, [" + community_name + "](/c/"+community_name+"@" + settings.INSTANCE + "). \n Here are some tips for getting users to subscribe to your new community!\n"
-                                                                "- Try posting a link to your community at [New Communities](/c/newcommunities@lemmy.world) and at [CommunityPromo](/c/communityPromo@lemmy.ca)\n"
-                                                                "- You should also add your community to the [Lemmy Community Boost project](https://boost.lemy.lol) so it is automatically shared to a bunch of other instances.\n"
-                                                                "- Ensure your community has some content. Users are more likely to subscribe if content is already available. (5 to 10 posts is usually a good start)\n"
-                                                                "- Consistency is key - you need to post consistently and respond to others to keep engagement with your new community up.\n\n"
-                                                                "I hope this helps!"
-                                                                "\n \n"+ bot_strings.PM_SIGNOFF, mod_id)    
+            lemmy.private_message.create(bot_strings.GREETING + " " + mod_name + ". Congratulations on creating your community, [" + community_name + "](/c/"+community_name+"@" + settings.INSTANCE + "). \n " + bot_strings.MOD_ADVICE + bot_strings.PM_SIGNOFF, mod_id)    
 
 
 def new_community_db(community_id, community_name):
@@ -1357,7 +1309,7 @@ def broadcast_message(message):
                 public_id, username, subscribed = row
                 try:
                     if subscribed == 1:
-                        lemmy.private_message.create("Hello, " + username + ".\n \n" + message + "\n\n --- \n *This is an automated message. To unsubscribe, please reply to this message with* `#unsubscribe`.", public_id) 
+                        lemmy.private_message.create(bot_strings.GREETING + " " + username + ".\n \n" + message + "\n\n --- \n *This is an automated message. To unsubscribe, please reply to this message with* `#unsubscribe`.", public_id) 
                         time.sleep(0.2)
                 except Exception as e:
                     logging.exception("Message failed to send to " + username)
@@ -1662,13 +1614,12 @@ def check_scheduled_posts():
 async def send_matrix_message(matrix_body):
     client = AsyncClient(settings.MATRIX_URL, settings.MATRIX_ACCOUNT)
 
- # Use an access token to log in
+ # use an access token to log in
     client.access_token = settings.MATRIX_API_KEY
 
-    # Replace with the room ID or alias of the room you want to send a message to
     room_id = settings.MATRIX_ROOM_ID
 
-    # Send a message to the room
+    # send a message to the room
     await client.room_send(
         room_id=room_id,
         message_type="m.room.message",
@@ -1678,7 +1629,7 @@ async def send_matrix_message(matrix_body):
         }
     )
 
-    # Logging out is not necessary when using an access token, but you might want to close the client session
+    # log out
     await client.close()
 
 

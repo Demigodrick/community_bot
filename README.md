@@ -1,17 +1,38 @@
 # Lemmy.zip's Community Bot
-
 Note - this is the Lemmy.zip version. For a version for other Instances to run please use (Lemmy Mod Bot) ##link to go here##
-
 RUNNING THIS VERSION WILL NOT WORK ON YOUR INSTANCE WITHOUT CHANGES.
-(due to hardcoded functions in this version)
 
+## About
+This bot works mainly by Users/Admins sending a PM to the bot account, and the bot will then process that PM. 
+Some of the admin functions are automatically run, you can set this schedule in the "main.py" file.
 
 ## Features
-- Poll feature - Admins can create polls and users can vote on them
-- Help functionality. The bot will PM helpul advice.
 - Welcome PM - the bot scans new applications to the site and sends a PM to the user with helpful info
+- Spam/temporary email address scanning for new users
 - Email new users between verifying email stage and admin acceptance stage (so new users don't get confused and think they're locked out of their accounts!)
-- A bunch of other helpful tools for Admins such as matrix notifications on urgent reports, scanning comments and posts for banned words (customisable regex), and allowing community moderators and admins to schedule pinned posts.
+- Poll feature - Admins can create polls and users can vote on them. 
+- Banned words scanning - replaces the built in Lemmy slur word filter, instead creating a report for the admin/mod to deal with as appropriate rather than just hiding slur behind "removed". (You can set your own regex for this in the .env file)
+- Help functionality. The bot will PM helpul advice, such as the commands it knows.
+- Feedback code sharing. If like me you want your feedback methods password protected, you can share the password with legitimate users by having the bot PM the password rather than posting it in public spaces.
+- "Autopost" - Schedule Pinned Posts - this is open to Admins and Community Mods and will allow the bot to pin a post on a schedule or as a one off. If on a schedule, it will remove the already pinned post before pinning a new one too.
+
+### Autopost commands
+A typical command would look like `#autopost -c community_name -t post_title -b post_body -d day -h time -f frequency`
+- `-c` - This defines the name of the community you are setting this up for. This is the original name of the community when you created it.
+- `-t` - This defines the title of the post. You can use the modifiers listed below here.
+- `-b` - This is the body of your post. This field is optional, so you don't need to include it if you don't want a body to your post. You can use the modifiers listed below here too.
+- `-u` - This defines a URL you can add to your post. This field is optional, so you don't need to include it.
+- `-d` - This defines the day of the week you want your thread to be posted on, i.e. `monday`, or you can enter a date you want the first post to occur in YYYYMMDD format, i.e. `20230612` which would be 12th June 2023.
+- `-h` - This defines the time of the day you want this thread to be posted, i.e. `12:00`. All times are UTC!
+- `-f` - This defines how often your thread will be posted. The options that currently exist are `weekly`, `fortnightly`, or `4weekly`.
+
+There are some modifiers you can use as outlined above:
+- `%d` - This will be replaced by the day of the month, i.e. `12`
+- `%m` - This will be replaced by the name of the month, i.e. `June`
+- `%y` - This will be replaced by the current year, i.e. `2024`
+- `%w` - This will be replaced by the day of the week, i.e. `Monday`
+For example, having `-t Weekly Thread %d %m` would be created as `Weekly Thread 12 June` (obviously depending on the day it is posted). 
+Finally, if you want to delete a scheduled autopost, use the command `#autopostdelete` with the ID number of the autopost, i.e. `#autopostdelete 1`.
 
 
 ## Customisation
