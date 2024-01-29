@@ -2,6 +2,7 @@ from pythorhead import Lemmy
 from pythorhead.types import SortType, ListingType, FeatureType
 from config import settings
 from datetime import datetime, timedelta, timezone
+from dateutil.relativedelta import relativedelta
 import logging
 import sqlite3
 import time
@@ -230,7 +231,7 @@ def add_autopost_to_db(post_data):
         logging.error(f"An error occurred: {e}")
         return "error"
     
-def delete_autopost(pin_id, pm_sender):
+def delete_autopost(pin_id, pm_sender, del_post):
     try:
         with connect_to_autopost_db() as conn:
             cursor = conn.cursor()
@@ -240,6 +241,7 @@ def delete_autopost(pin_id, pm_sender):
 
             community_name = full_row[1]
             mod_id = full_row[2]
+            prev_post = full_row[8]
 
             #check it has not already been deleted
             if community_name == None:
@@ -251,7 +253,10 @@ def delete_autopost(pin_id, pm_sender):
             if mod_id == pm_sender:
                 query = "DELETE FROM com_posts WHERE pin_id = ?"
                 cursor.execute(query, (pin_id,))
-                conn.commit 
+                conn.commit() 
+                if prev_post is not None:
+                    if del_post:
+                        lemmy.post.delete(prev_post,True)
                 return "deleted"
 
             #not a match, check if sender is a mod of the community
@@ -264,7 +269,10 @@ def delete_autopost(pin_id, pm_sender):
                     is_moderator = True
                     query = "DELETE FROM com_posts WHERE pin_id = ?"
                     cursor.execute(query, (pin_id,))
-                    conn.commit
+                    conn.commit()
+                    if prev_post is not None:
+                        if del_post:
+                            lemmy.post.delete(prev_post,True)
                     return "deleted"
 
             if not is_moderator:
@@ -408,16 +416,16 @@ def check_pms():
                                                                     "- `-t` - This defines the title of the post. You can use the modifiers listed below here. \n"
                                                                     "- `-b` - This is the body of your post. This field is optional, so you don't need to include it if you don't want a body to your post. You can use the modifiers listed below here too. \n"
                                                                     "- `-u` - This defines a URL you can add to your post. This field is optional, so you don't need to include it. \n"
-                                                                    "- `-d` - This defines the day of the week you want your thread to be posted on, i.e. `monday`, or you can enter a date you want the first post to occur in YYYYMMDD format, i.e. `20230612` which would be 12th June 2023. \n"
+                                                                    "- `-d` - This defines a date you want the first post to occur in YYYYMMDD format, i.e. `20230612` which would be 12th June 2023, or the day of the week you want your thread to be posted on, i.e. `monday`. \n"
                                                                     "- `-h` - This defines the time of the day you want this thread to be posted, i.e. `12:00`. All times are UTC! \n"
-                                                                    "- `-f` - This defines how often your thread will be posted. The options that currently exist are `weekly`, `fortnightly`, or `4weekly`. \n\n"
+                                                                    "- `-f` - This defines how often your thread will be posted. The options that currently exist are `once`, `weekly`, `fortnightly`, `4weekly`, or `monthly`. \n\n"
                                                                     "There are some modifiers you can use as outlined above: \n"
                                                                     "- `%d` - This will be replaced by the day of the month, i.e. `12` \n"
                                                                     "- `%m` - This will be replaced by the name of the month, i.e. `June`. \n"
                                                                     "- `%y` - This will be replaced by the current year, i.e. `2024` \n"
                                                                     "- `%w` - This will be replaced by the day of the week, i.e. `Monday`.\n\n"
                                                                     "For example, having `-t Weekly Thread %d %m` might be created as `Weekly Thread 12 June` depending on the day it is posted. \n\n"
-                                                                    "Finally, if you want to delete a scheduled autopost, use the command `#autopostdelete` with the ID number of the autopost, i.e. `#autopostdelete 1`. "
+                                                                    "Finally, if you want to delete a scheduled autopost, use the command `#autopostdelete` with the ID number of the autopost, i.e. `#autopostdelete 1`. You can also delete the latest pinned thread if you include `y` at the end, i.e `#autopostdelete 1 y`."
                                                                     "\n \n" + bot_strings.AUTOPOST_HELP, pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
@@ -686,18 +694,20 @@ def check_pms():
                                             "- once (the post will only happen once) \n"
                                             "- weekly (every 7 days) \n"
                                             "- fortnightly (every 14 days) \n"
-                                            "- 4weekly (every 28 days)"
+                                            "- 4weekly (every 28 days) \n"
+                                            "- monthly (once a month)"
                                             "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
             
-            if post_data['frequency'] not in ["once", "weekly", "fortnightly", "4weekly"]:
+            if post_data['frequency'] not in ["once", "weekly", "fortnightly", "4weekly", "monthly"]:
                 lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". I couldn't find a valid frequency following the -f flag. \n\n"
                                             "You can use the following frequencies: \n"
                                             "- once (the post will only happen once) \n"
                                             "- weekly (every 7 days) \n"
                                             "- fortnightly (every 14 days) \n"
-                                            "- 4weekly (every 28 days)"
+                                            "- 4weekly (every 28 days) \n"
+                                            "- monthly (once a month)"
                                             "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
@@ -756,7 +766,7 @@ def check_pms():
             # Convert the day, time, and frequency into a scheduled datetime
             if day_type == "day":
                 if post_data['day'] and post_data['time']:
-                    next_post_date = get_next_post_date(post_data['day'], post_data['time'], post_data['frequency'])
+                    next_post_date = get_first_post_date(post_data['day'], post_data['time'], post_data['frequency'])
                     post_data['scheduled_post'] = next_post_date
                     dtype = "Day"
 
@@ -800,8 +810,12 @@ def check_pms():
 
         if pm_context.split(" ")[0] == "#autopostdelete":
             pin_id = pm_context.split(" ")[1]
+            if len(split_context) >= 3 and split_context[2] != "":
+                del_post = True
+            else:
+                del_post = False
 
-            delete_conf = delete_autopost(pin_id, pm_sender)
+            delete_conf = delete_autopost(pin_id, pm_sender, del_post)
 
             if delete_conf == "deleted":
                 lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". Your pinned autopost (with ID " + pin_id + ") has been successfully deleted."
@@ -1466,7 +1480,7 @@ def check_reports():
     post_reports()
     comment_reports()
 
-def get_next_post_date(day, time, frequency):
+def get_first_post_date(day, time, frequency):
     # Map days to integers
 
     day = day.lower()
@@ -1480,46 +1494,45 @@ def get_next_post_date(day, time, frequency):
         'saturday': 5,
         'sunday': 6
     }
-    # Frequency mapping 
-    frequency_mapping = {
-        'once': 0,
-        'weekly': 7,
-        'fortnightly': 14,
-        '4weekly': 28  # Every 4 weeks
-        
-    }
-    
     today = datetime.now()
     today_weekday = today.weekday()
     target_weekday = days[day]
 
-    # Calculate days until the next target day
-    days_until_next = (target_weekday - today_weekday + 7) % 7
-    if days_until_next == 0 and frequency != 'once':
-        days_until_next = frequency_mapping.get(frequency, 7)
+    if frequency == 'monthly':
+        next_month = today + relativedelta(months=1)
+        days_until_next = (target_weekday - next_month.weekday() + 7) % 7
+        next_post_date = next_month + timedelta(days=days_until_next)
+    else:
+        days_until_next = (target_weekday - today_weekday + 7) % 7
+        if days_until_next == 0 and frequency != 'once':
+            frequency_mapping = {
+                'once': 0,
+                'weekly': 7,
+                'fortnightly': 14,
+                '4weekly': 28
+            }
+            days_until_next = frequency_mapping.get(frequency, 7)
 
-    # Combine date and time
-    next_post_datetime = today + timedelta(days=days_until_next)
+        next_post_date = today + timedelta(days=days_until_next)
+
     post_time = datetime.strptime(time, "%H:%M").time()
-    return datetime.combine(next_post_datetime.date(), post_time)
+    return datetime.combine(next_post_date.date(), post_time)
 
 def calc_next_post_date(old_post_date, frequency):
-    # Map frequency to days
     frequency_mapping = {
-        'once': 0,
-        'weekly': 7,
-        'fortnightly': 14,
-        '4weekly': 28
+        'once': 'delete',
+        'weekly': timedelta(days=7),
+        'fortnightly': timedelta(days=14),
+        '4weekly': timedelta(days=28),
+        'monthly': relativedelta(months=1)
     }
 
     if frequency == 'once':
         return "delete"
 
-    # Get the number of days to add for the given frequency
-    days_to_add = frequency_mapping.get(frequency, 7)
+    time_to_add = frequency_mapping.get(frequency, timedelta(days=7))
 
-    # Add the days to the old_post_date
-    new_post_date = old_post_date + timedelta(days=days_to_add)
+    new_post_date = old_post_date + time_to_add
 
     return new_post_date
 
@@ -1564,7 +1577,7 @@ def check_scheduled_posts():
                 if com_details == None:
                     query = "DELETE FROM com_posts WHERE pin_id = ?"
                     cursor.execute(query, (record_id,))
-                    conn.commit
+                    conn.commit()
                     continue
 
                 #format body string
@@ -1600,7 +1613,7 @@ def check_scheduled_posts():
                 if next_post_date == 'delete':
                     query = "DELETE FROM com_posts WHERE pin_id = ?"
                     cursor.execute(query, (record_id,))
-                    conn.commit
+                    conn.commit()
                     continue
 
                 query = "UPDATE com_posts SET scheduled_post = ? WHERE pin_id = ?"

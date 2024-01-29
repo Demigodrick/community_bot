@@ -1,5 +1,6 @@
 # Lemmy.zip's Community Bot
 Note - this is the Lemmy.zip version. For a version for other Instances to run please use (Lemmy Mod Bot) ##link to go here##
+
 RUNNING THIS VERSION WILL NOT WORK ON YOUR INSTANCE WITHOUT CHANGES.
 
 ## About
@@ -12,7 +13,9 @@ Some of the admin functions are automatically run, you can set this schedule in 
 - Email new users between verifying email stage and admin acceptance stage (so new users don't get confused and think they're locked out of their accounts!)
 - Poll feature - Admins can create polls and users can vote on them. 
 - Banned words scanning - replaces the built in Lemmy slur word filter, instead creating a report for the admin/mod to deal with as appropriate rather than just hiding slur behind "removed". (You can set your own regex for this in the .env file)
-- Help functionality. The bot will PM helpul advice, such as the commands it knows.
+- Help functionality. The bot will PM helpul advice, such as the commands it knows. (Admins should use #help to see a full list of commands)
+- "Takeover" functionality to allow an admin to assign a community to a different user. Doesn't require the user to have posted in that community.
+- Broadcast a message to all the users in your instance (does require some setup though, [message me](me.lemmy.zip/@demigodrick) for help with this.) Users can subscribe/unsubscribe from this.
 - Feedback code sharing. If like me you want your feedback methods password protected, you can share the password with legitimate users by having the bot PM the password rather than posting it in public spaces.
 - "Autopost" - Schedule Pinned Posts - this is open to Admins and Community Mods and will allow the bot to pin a post on a schedule or as a one off. If on a schedule, it will remove the already pinned post before pinning a new one too.
 
@@ -22,9 +25,9 @@ A typical command would look like `#autopost -c community_name -t post_title -b 
 - `-t` - This defines the title of the post. You can use the modifiers listed below here.
 - `-b` - This is the body of your post. This field is optional, so you don't need to include it if you don't want a body to your post. You can use the modifiers listed below here too.
 - `-u` - This defines a URL you can add to your post. This field is optional, so you don't need to include it.
-- `-d` - This defines the day of the week you want your thread to be posted on, i.e. `monday`, or you can enter a date you want the first post to occur in YYYYMMDD format, i.e. `20230612` which would be 12th June 2023.
+- `-d` - This defines a date you want the first post to occur in YYYYMMDD format, i.e. `20230612` which would be 12th June 2023, or the day of the week you want your thread to be posted on, i.e. `monday`.
 - `-h` - This defines the time of the day you want this thread to be posted, i.e. `12:00`. All times are UTC!
-- `-f` - This defines how often your thread will be posted. The options that currently exist are `weekly`, `fortnightly`, or `4weekly`.
+- `-f` - This defines how often your thread will be posted. The options that currently exist are `once`, `weekly`, `fortnightly`, `4weekly`, or `monthly`.
 
 There are some modifiers you can use as outlined above:
 - `%d` - This will be replaced by the day of the month, i.e. `12`
@@ -32,7 +35,9 @@ There are some modifiers you can use as outlined above:
 - `%y` - This will be replaced by the current year, i.e. `2024`
 - `%w` - This will be replaced by the day of the week, i.e. `Monday`
 For example, having `-t Weekly Thread %d %m` would be created as `Weekly Thread 12 June` (obviously depending on the day it is posted). 
-Finally, if you want to delete a scheduled autopost, use the command `#autopostdelete` with the ID number of the autopost, i.e. `#autopostdelete 1`.
+
+
+Finally, if you want to delete a scheduled autopost, use the command `#autopostdelete` with the ID number of the autopost, i.e. `#autopostdelete 1`. You can also delete the latest pinned thread if you include `y` at the end, i.e `#autopostdelete 1 y`.
 
 
 ## Customisation
