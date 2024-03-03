@@ -6,7 +6,6 @@ class Settings(BaseSettings):
     PASSWORD: str
     BOT_ID: int
     INSTANCE: str
-    SCORE: int
     LOCAL: bool
     EMAIL_FUNCTION: bool
     SMTP_SERVER: str
@@ -23,6 +22,7 @@ class Settings(BaseSettings):
     MATRIX_URL: str
     MATRIX_ACCOUNT: str
     ADMIN_ID: str
+    RSS_ENABLED: bool
 
 
     class Config:

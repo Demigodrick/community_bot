@@ -15,7 +15,7 @@ Some of the admin functions are automatically run, you can set this schedule in 
 - Banned words scanning - replaces the built in Lemmy slur word filter, instead creating a report for the admin/mod to deal with as appropriate rather than just hiding slur behind "removed". (You can set your own regex for this in the .env file)
 - Help functionality. The bot will PM helpul advice, such as the commands it knows. (Admins should use #help to see a full list of commands)
 - "Takeover" functionality to allow an admin to assign a community to a different user. Doesn't require the user to have posted in that community.
-- Broadcast a message to all the users in your instance (does require some setup though, [message me](me.lemmy.zip/@demigodrick) for help with this.) Users can subscribe/unsubscribe from this.
+- Broadcast a message to all the users in your instance (does require some setup though, [message me](https://me.lemmy.zip/@demigodrick) for help with this.) Users can subscribe/unsubscribe from this.
 - Feedback code sharing. If like me you want your feedback methods password protected, you can share the password with legitimate users by having the bot PM the password rather than posting it in public spaces.
 - "Autopost" - Schedule Pinned Posts - this is open to Admins and Community Mods and will allow the bot to pin a post on a schedule or as a one off. If on a schedule, it will remove the already pinned post before pinning a new one too.
 
