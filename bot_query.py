@@ -80,6 +80,7 @@ def check_dbs():
                 url_excludes_filter TEXT,
                 title_excludes_filter TEXT,
                 community TEXT,
+                tag TEXT,
                 last_updated TIMESTAMP)
             ''')
             
@@ -248,6 +249,50 @@ def add_autopost_to_db(post_data):
         logging.error(f"An error occurred: {e}")
         return "error"
     
+def delete_rss(feed_id, pm_sender):
+    try:
+        with connect_to_rss_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM feeds WHERE feed_id = ?", (feed_id,))
+        feed = cursor.fetchone()
+        if feed is None:
+            return "no_exist"
+        
+        community = feed[6]
+        
+        output = lemmy.community.get(community)
+            
+        #check if user is moderator of community
+        is_moderator = False
+
+        for moderator_info in output['moderators']:
+            if moderator_info['moderator']['id'] == pm_sender:
+                is_moderator = True
+                break
+
+        if not is_moderator:
+            #if pm_sender is not a moderator, send a private message
+            lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". As you are not the moderator of this community, you are not able to delete an RSS feed from it."
+                                        "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
+            lemmy.private_message.mark_as_read(pm_id, True)
+            return "not_mod"
+                   
+        # Proceed with deletion if the feed exists
+        cursor.execute("DELETE FROM posts WHERE feed_id = ?", (feed_id,))
+        cursor.execute("DELETE FROM feeds WHERE feed_id = ?", (feed_id,))
+        conn.commit()
+        logging.info("Feed and related posts deleted successfully.")
+        return "deleted"
+    
+    except sqlite3.IntegrityError as e:
+            print(f"Integrity error: {e}")
+    except sqlite3.Error as e:
+            print(f"Database error: {e}")
+    except Exception as e:
+            print(f"Unexpected error: {e}")
+            
+        
+    
 def delete_autopost(pin_id, pm_sender, del_post):
     try:
         with connect_to_autopost_db() as conn:
@@ -388,10 +433,13 @@ def check_pms():
                                          "A typical command would look like `#rss -url rss_url -c community name` - but there are a few modifiers you can use. \n"
                                          "- `url` - This is the URL of the rss feed, and is mandatory. \n"
                                          "- `c` - This is the community name and is mandatory. \n"
+                                         "- `t` - This will tag your post titles with a preceding tag in square brackets, i.e. `-t \"RSS POST\"` will result in each post being tagged with `[RSS POST]` \n."
                                          "- `title_inc` - Adding this will mean that only posts that INCLUDE the string you define will be posted, i.e. `-title_inc \"title must be included\"`. The speech marks are mandatory if you use this option, and you can have multiple filters by using a commma between them. \n"
                                          "- `title_exc` - Adding this will EXCLUDE any posts that match this string, i.e. `-title_exc \"dont include this\"`. The speech marks are mandatory if you use this option. \n"
                                          "- `url_inc` - Adding this will filter the post based on the link to the content in the RSS feed. You can use it in a way such as `-url_inc \"goodlink.com\"` to ensure that only posts where the link to the content is for `goodlink.com`. Speech marks are mandatory.\n"
-                                         "- `url_exc` - Adding this will exclude content based on the link to the content RSS feed, such as `-url_exc \"badlink.com\"`. Speech marks are mandatory. \n"                                      
+                                         "- `url_exc` - Adding this will exclude content based on the link to the content RSS feed, such as `-url_exc \"badlink.com\"`. Speech marks are mandatory. \n" 
+                                         "- `new_only` - Adding this will mean that on the creation of this RSS feed, ZippyBot won't scan for existing posts and only start looking at posts after starting this feed. \n"
+                                         "Finally, if you want to delete an RSS feed from your community, use the command `#rssdelete` with the ID number of the RSS feed, i.e. `#rssdelete 1`. \n"
                                          "\n\n" + bot_strings.AUTOPOST_HELP, pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
@@ -584,11 +632,31 @@ def check_pms():
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
         
+        if pm_context.split(" ")[0] == "#rssdelete":
+            feed_id = pm_context.split(" ")[1]
+            status = delete_rss(feed_id, pm_sender)
+            
+            if status == "no_exist":
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". Sorry, there is not an RSS feed with that ID number. Please try again."
+                                             "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
+            
+            if status == "not_mod":
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". Sorry, you'll need to be a mod of this community before deleting and RSS feed."
+                                             "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue       
+            
+            if status == "deleted":
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". The RSS feed has been deleted for this community."
+                                             "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue                 
+        
         #mod/admin action - create rss feed in community
         if pm_context.split(" ")[0] == "#rss":
-            pattern = r'-(url|url_exc|url_inc|title_inc|title_exc|c|ignore)\s*(?:"(.*?)"|“(.*?)”|([^\s]+))(?=\s+-|$)'
-
-
+            pattern = r'-(url|url_exc|url_inc|title_inc|title_exc|c|t|new_only|ignore)\s*(?:(?:"(.*?)")|(?:“(.*?)”)|([^\s]+))?(?=\s+-|$)'
 
             filters = {
                 'feed_url': None,
@@ -596,28 +664,36 @@ def check_pms():
                 'url_contains_filter': None,
                 'title_excludes_filter': None,
                 'title_contains_filter': None,
-                'community': None
+                'community': None,
+                'tag': None
             }
             
             ignore_bozo_check = False
-
+            new_only = False
+    
             matches = re.findall(pattern, pm_context)
-            
-            for filter_type, straight_quote_value, curly_quote_value, no_quote_value in matches:
-                value = straight_quote_value or curly_quote_value or no_quote_value
-                if filter_type == 'url':
+
+            for match in matches:
+                flag = match[0]
+                value = next((m for m in match[1:] if m), None)
+                
+                if flag == 'url':
                     filters['feed_url'] = value
-                elif filter_type == 'url_exc':
-                    filters['url_excludes_filter'] = value
-                elif filter_type == 'url_inc':
+                elif flag == 'url_exc':
+                    filters['url_excludes_filter'] = value 
+                elif flag == 'url_inc':
                     filters['url_contains_filter'] = value
-                elif filter_type == 'title_inc':
+                elif flag == 'title_inc':
                     filters['title_contains_filter'] = value
-                elif filter_type == 'title_exc':
-                    filters['title_excludes_filter'] = value
-                elif filter_type == 'c':
+                elif flag == 'title_exc':
+                    filters['title_excludes_filter']
+                elif flag == 'c':
                     filters['community'] = value
-                elif filter_type == 'ignore':
+                elif flag == 't':
+                    filters['tag'] = value
+                elif flag == 'new_only':
+                    new_only = True
+                elif flag == 'ignore':
                     ignore_bozo_check = True
                         
             if not filters['feed_url']:
@@ -674,16 +750,37 @@ def check_pms():
                 filters['url_excludes_filter'],
                 filters['title_contains_filter'],
                 filters['title_excludes_filter'],
-                filters['community']
+                filters['community'],
+                filters['tag']
                 )
+                
                 if add_new_feed_result == "exists":
                     lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + f". The RSS feed you're trying to add already exists in the [{com_name}](/c/{com_name}@{settings.INSTANCE}) community.", pm_sender)
                 elif add_new_feed_result is None:
                     lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + f". An error occurred while adding the RSS feed. Please try again.", pm_sender)
                 else:
+                    feed_id = add_new_feed_result
                     lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + f". I have successfully added the requested RSS feed to the [{com_name}](/c/{com_name}@{settings.INSTANCE}) community. The ID for this RSS feed is {add_new_feed_result} - please keep this safe as you'll need it if you want to delete the feed in the future.", pm_sender)
                 
                 lemmy.private_message.mark_as_read(pm_id, True)
+                
+                if new_only == True:
+                    with connect_to_rss_db() as conn:
+                        cursor = conn.cursor()
+                        cursor.execute("""
+                            SELECT feed_id, feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag
+                            FROM feeds
+                            WHERE feed_url = ?
+                            """, (feed_url,))
+                        
+                        feed_details = cursor.fetchone()
+                        
+                    if feed_details:
+                        feed_id, feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag = feed_details
+                        posts = fetch_latest_posts(feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag)
+                        for post in posts:
+                            insert_new_post(feed_id, post)
+                    
 
             continue
             
@@ -909,6 +1006,14 @@ def check_pms():
             if user_admin == True:
                 if os.path.exists('resources/mod_actions.db'):
                     os.remove('resources/mod_actions.db')
+                    check_dbs()
+                    lemmy.private_message.mark_as_read(pm_id, True)
+                    continue
+        
+        if pm_context == "#purgerss":
+            if user_admin == True:
+                if os.path.exists('resources/rss.db'):
+                    os.remove('resources/rss.db')
                     check_dbs()
                     lemmy.private_message.mark_as_read(pm_id, True)
                     continue
@@ -1138,18 +1243,22 @@ def RSS_feed():
     with connect_to_rss_db() as conn:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT feed_id, feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community
+            SELECT feed_id, feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag
             FROM feeds
         """)
         feeds = cursor.fetchall()
     
     for feed in feeds:
-        feed_id, feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community = feed
-        posts = fetch_latest_posts(feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community)
+        feed_id, feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag = feed
+        posts = fetch_latest_posts(feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag)
         for post in posts:
             if insert_new_post(feed_id, post):
+                if tag:
+                    post_title = f"[{tag}] " + post['title']
+                else:
+                    post_title = post['title']
                 #actually post to lemmy here
-                lemmy.post.create(community_id=int(community), name=post['title'], url=post['post_url'])
+                lemmy.post.create(community_id=int(community), name=post_title, url=post['post_url'])
 
     
 def fetch_rss_feeds():
@@ -1159,7 +1268,7 @@ def fetch_rss_feeds():
         feeds = cursor.fetchall()
     return feeds
 
-def fetch_latest_posts(feed_url, url_contains_filter=None, url_excludes_filter=None, title_contains_filter=None, title_excludes_filter=None, community=None):
+def fetch_latest_posts(feed_url, url_contains_filter=None, url_excludes_filter=None, title_contains_filter=None, title_excludes_filter=None, community=None, tag=None):
     feed = feedparser.parse(feed_url)
     filtered_posts = []
     for entry in feed.entries[:3]:
@@ -1199,7 +1308,7 @@ def insert_new_post(feed_id, post):
     return False
 
 
-def add_new_feed(feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community):
+def add_new_feed(feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag):
     conn = connect_to_rss_db()
     cursor = conn.cursor()
     
@@ -1210,11 +1319,11 @@ def add_new_feed(feed_url, url_contains_filter, url_excludes_filter, title_conta
         return "exists" 
     
     insert_query = """
-    INSERT INTO feeds (feed_url, url_contains_filter, title_contains_filter, url_excludes_filter, title_excludes_filter, community, last_updated)
-    VALUES (?, ?, ?, ?, ?, ?, ?)
+    INSERT INTO feeds (feed_url, url_contains_filter, title_contains_filter, url_excludes_filter, title_excludes_filter, community, tag, last_updated)
+    VALUES (?, ?, ?, ?, ?, ?, ?, ?)
     """
     
-    values = (feed_url, url_contains_filter, title_contains_filter, url_excludes_filter, title_excludes_filter, community, datetime.now())
+    values = (feed_url, url_contains_filter, title_contains_filter, url_excludes_filter, title_excludes_filter, community, tag, datetime.now())
     
     try:        
         cursor.execute(insert_query, values)

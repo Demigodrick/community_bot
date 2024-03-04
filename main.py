@@ -6,7 +6,7 @@ import time
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 logging.info("Hello! Bot starting...")
-logging.info("Bot Version 0.5.0")
+logging.info("Bot Version 0.5.1")
 
 if __name__ == "__main__":
     
@@ -23,15 +23,14 @@ if __name__ == "__main__":
 
     #minutes
     schedule.every(30).minutes.do(clear_notifications)
-    schedule.every(10).minutes.do(steam_deals)
-    if settings.RSS_ENABLED:
-        schedule.every(10).minutes.do(RSS_feed)
-    
+    schedule.every(10).minutes.do(steam_deals)     
 
     #optional 
     if settings.SLUR_ENABLED:
         schedule.every(10).seconds.do(check_comments)
         schedule.every(10).seconds.do(check_posts)
+    if settings.RSS_ENABLED:
+        schedule.every(10).minutes.do(RSS_feed)
 
 while True:
     schedule.run_pending()
