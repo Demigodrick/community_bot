@@ -1,0 +1,40 @@
+2024-03-11 21:12:59,865 - INFO - Hello! Bot starting...
+2024-03-11 21:12:59,865 - INFO - Bot Version 0.5.1
+2024-03-11 21:12:59,872 - DEBUG - Starting new HTTPS connection (1): lemmy.zip:443
+2024-03-11 21:13:01,541 - DEBUG - https://lemmy.zip:443 "GET /nodeinfo/2.0.json HTTP/1.1" 200 None
+2024-03-11 21:13:01,548 - INFO - Connected succesfully to Lemmy v0.19.3 instance https://lemmy.zip
+2024-03-11 21:13:01,550 - INFO - Requesting API Request.POST /user/login
+2024-03-11 21:13:01,575 - DEBUG - Starting new HTTPS connection (1): lemmy.zip:443
+2024-03-11 21:13:01,998 - DEBUG - https://lemmy.zip:443 "POST /api/v3/user/login HTTP/1.1" 200 None
+2024-03-11 21:13:02,000 - DEBUG - Checked/created votes table
+2024-03-11 21:13:02,000 - DEBUG - Checked/created polls table
+2024-03-11 21:13:02,000 - DEBUG - Checked/created users table
+2024-03-11 21:13:02,001 - DEBUG - Checked/created communities table
+2024-03-11 21:13:02,001 - DEBUG - Checked/created deals table
+2024-03-11 21:13:02,001 - DEBUG - Checked/created new_posts table
+2024-03-11 21:13:02,001 - DEBUG - Checked/created new_comments table
+2024-03-11 21:13:02,002 - DEBUG - Checked/created feeds table
+2024-03-11 21:13:02,002 - DEBUG - Checked/created posts table
+2024-03-11 21:13:02,002 - DEBUG - Checked/created post_reports table
+2024-03-11 21:13:02,003 - DEBUG - Checked/created comment_reports table
+2024-03-11 21:13:02,003 - DEBUG - Checked/created com_posts table
+2024-03-11 21:15:36,304 - INFO - Hello! Bot starting...
+2024-03-11 21:15:36,304 - INFO - Bot Version 0.5.1
+2024-03-11 21:15:36,312 - DEBUG - Starting new HTTPS connection (1): lemmy.zip:443
+2024-03-11 21:15:36,466 - DEBUG - https://lemmy.zip:443 "GET /nodeinfo/2.0.json HTTP/1.1" 200 None
+2024-03-11 21:15:36,470 - INFO - Connected succesfully to Lemmy v0.19.3 instance https://lemmy.zip
+2024-03-11 21:15:36,471 - INFO - Requesting API Request.POST /user/login
+2024-03-11 21:15:36,494 - DEBUG - Starting new HTTPS connection (1): lemmy.zip:443
+2024-03-11 21:15:36,972 - DEBUG - https://lemmy.zip:443 "POST /api/v3/user/login HTTP/1.1" 200 None
+2024-03-11 21:15:36,981 - DEBUG - Checked/created votes table
+2024-03-11 21:15:36,981 - DEBUG - Checked/created polls table
+2024-03-11 21:15:36,982 - DEBUG - Checked/created users table
+2024-03-11 21:15:36,983 - DEBUG - Checked/created communities table
+2024-03-11 21:15:36,984 - DEBUG - Checked/created deals table
+2024-03-11 21:15:36,986 - DEBUG - Checked/created new_posts table
+2024-03-11 21:15:36,986 - DEBUG - Checked/created new_comments table
+2024-03-11 21:15:36,988 - DEBUG - Checked/created feeds table
+2024-03-11 21:15:36,989 - DEBUG - Checked/created posts table
+2024-03-11 21:15:36,990 - DEBUG - Checked/created post_reports table
+2024-03-11 21:15:36,991 - DEBUG - Checked/created comment_reports table
+2024-03-11 21:15:36,991 - DEBUG - Checked/created com_posts table

@@ -19,6 +19,7 @@ RUN python3 -m pip install --upgrade pip
 # Copy the current directory contents into the container at /bot
 COPY requirements.txt .
 COPY bot_query.py .
+COPY healthcheck.py .
 COPY bot_strings.py .
 COPY config.py .
 COPY main.py .
@@ -27,6 +28,9 @@ COPY resources/ ./resources/
 
 # Install any needed packages specified in requirements.txt
 RUN pip3 install --no-cache-dir -r requirements.txt
+
+HEALTHCHECK --interval=1m --timeout=10s \
+  CMD python ./healthcheck.py || exit 1
 
 # Run main.py when the container launches
 CMD ["python3", "main.py"]

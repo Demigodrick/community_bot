@@ -21,7 +21,25 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
 
-logging.basicConfig(level=logging.INFO, format='%(asctime)s - %(levelname)s - %(message)s')
+#logging stuff for healthcheck
+log_file_path = 'resources/zippy.log'
+
+logger = logging.getLogger()
+logger.setLevel(logging.DEBUG)
+
+#write to healthcheck file
+file_handler = logging.FileHandler(log_file_path)
+file_handler.setLevel(logging.DEBUG)
+file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+
+#write to stderr
+stream_handler = logging.StreamHandler()
+stream_handler.setLevel(logging.DEBUG)
+stream_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
+
+# Add the handlers to the logger
+logger.addHandler(file_handler)
+logger.addHandler(stream_handler)
 
 ####################### N O T E S ###############################
 #  Add in reports for messages (doesnt exist in pythorhead yet)
@@ -438,7 +456,7 @@ def check_pms():
                                          "- `title_exc` - Adding this will EXCLUDE any posts that match this string, i.e. `-title_exc \"dont include this\"`. The speech marks are mandatory if you use this option. \n"
                                          "- `url_inc` - Adding this will filter the post based on the link to the content in the RSS feed. You can use it in a way such as `-url_inc \"goodlink.com\"` to ensure that only posts where the link to the content is for `goodlink.com`. Speech marks are mandatory.\n"
                                          "- `url_exc` - Adding this will exclude content based on the link to the content RSS feed, such as `-url_exc \"badlink.com\"`. Speech marks are mandatory. \n" 
-                                         "- `new_only` - Adding this will mean that on the creation of this RSS feed, ZippyBot won't scan for existing posts and only start looking at posts after starting this feed. \n"
+                                         "- `new_only` - Adding this will mean that on the creation of this RSS feed, ZippyBot won't scan for existing posts and only start looking at posts after starting this feed. \n\n"
                                          "Finally, if you want to delete an RSS feed from your community, use the command `#rssdelete` with the ID number of the RSS feed, i.e. `#rssdelete 1`. \n"
                                          "\n\n" + bot_strings.AUTOPOST_HELP, pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
