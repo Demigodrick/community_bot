@@ -27,7 +27,7 @@ MOD_ADVICE = ("Here are some tips for getting users to subscribe to your new com
                 "- Try posting a link to your community at [New Communities](/c/newcommunities@lemmy.world) and at [CommunityPromo](/c/communityPromo@lemmy.ca)\n"
                 "- Your community is automatically part of the [Lemmy Federate](https://lemmy-federate.com/) project, so it is immediately shared to a bunch of other instances.\n"
                 "- Ensure your community has some content. Users are more likely to subscribe if content is already available. (5 to 10 posts is usually a good start)\n"
-                "- There are a couple of mod tools you can use to support your community, such as the Autopost feature or RSS feed feature. You can use `#autoposthelp` or `#rsshelp` for more information on these features. \n"
+                "- There are a couple of mod tools you can use to support your community. You can see the details on our Mod Tools [by clicking here!](https://lemmy.zip/post/13514228) \n"
                 "- Consistency is key - you need to post consistently and respond to others to keep engagement with your new community up.\n\n"
                 "I hope this helps! \n \n")
 

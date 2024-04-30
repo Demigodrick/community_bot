@@ -25,16 +25,16 @@ from email.mime.image import MIMEImage
 log_file_path = 'resources/zippy.log'
 
 logger = logging.getLogger()
-logger.setLevel(logging.DEBUG)
+logger.setLevel(logging.INFO)
 
 #write to healthcheck file
 file_handler = logging.FileHandler(log_file_path)
-file_handler.setLevel(logging.DEBUG)
+file_handler.setLevel(logging.INFO)
 file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 
 #write to stderr
 stream_handler = logging.StreamHandler()
-stream_handler.setLevel(logging.DEBUG)
+stream_handler.setLevel(logging.INFO)
 stream_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 
 # Add the handlers to the logger
@@ -46,12 +46,13 @@ logger.addHandler(stream_handler)
 #  anti-spam measure for an ID?
 #  Check applications for declined applications, send email confirming declined. 
 #  Use reason if included otherwise generic text.
-
+#  fix report remote
 
 def login():
     global lemmy
-    lemmy = Lemmy("https://" + settings.INSTANCE)
+    lemmy = Lemmy("https://" + settings.INSTANCE, request_timeout=5)
     lemmy.log_in(settings.USERNAME, settings.PASSWORD)
+    
 
     return lemmy
 
@@ -80,6 +81,10 @@ def check_dbs():
         with sqlite3.connect('resources/games.db') as conn:
             #create or check game deals table   
             create_table(conn, 'deals', '(deal_name TEXT, deal_date TEXT)')
+            
+        with sqlite3.connect('resources/welcome/welcome.db') as conn:
+            #create or check welcome messages table
+            create_table(conn, 'messages', '(community TEXT UNIQUE, message TEXT)')
 
         with sqlite3.connect('resources/mod_actions.db') as conn:
             #create or check new posts table
@@ -87,6 +92,9 @@ def check_dbs():
 
             #create or check new comments table
             create_table(conn, 'new_comments', '(comment_id INT, comment_poster INT, mod_action STR)')
+            
+            #create or check community words table
+            create_table(conn, 'community_words', '(community TEXT UNIQUE, words TEXT, action TEXT)')
 
             #create or check rss tables
         with sqlite3.connect('resources/rss.db') as conn:
@@ -99,6 +107,7 @@ def check_dbs():
                 title_excludes_filter TEXT,
                 community TEXT,
                 tag TEXT,
+                body BOOL,
                 last_updated TIMESTAMP)
             ''')
             
@@ -139,11 +148,17 @@ def connect_to_rss_db():
 def connect_to_users_db():
     return sqlite3.connect('resources/users.db')
 
+def connect_to_welcome_db():
+    return sqlite3.connect('resources/welcome/welcome.db')
+
 def connect_to_reports_db():
     return sqlite3.connect('resources/reports.db')
 
 def connect_to_autopost_db():
     return sqlite3.connect('resources/autopost.db')
+
+def connect_to_mod_db():
+    return sqlite3.connect('resources/mod_actions.db')
 
 def execute_sql_query(connection, query, params=()):
     with connection:
@@ -289,13 +304,8 @@ def delete_rss(feed_id, pm_sender):
                 break
 
         if not is_moderator:
-            #if pm_sender is not a moderator, send a private message
-            lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". As you are not the moderator of this community, you are not able to delete an RSS feed from it."
-                                        "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
-            lemmy.private_message.mark_as_read(pm_id, True)
             return "not_mod"
                    
-        # Proceed with deletion if the feed exists
         cursor.execute("DELETE FROM posts WHERE feed_id = ?", (feed_id,))
         cursor.execute("DELETE FROM feeds WHERE feed_id = ?", (feed_id,))
         conn.commit()
@@ -309,6 +319,35 @@ def delete_rss(feed_id, pm_sender):
     except Exception as e:
             print(f"Unexpected error: {e}")
             
+def delete_welcome(com_name, pm_sender):
+    try:
+        with connect_to_welcome_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT * FROM messages WHERE community = ?", (com_name,))
+            row = cursor.fetchone()
+            if row is None:
+                return "no_exist"
+            
+        output = lemmy.community.get(name=com_name)
+        is_moderator = False
+        for moderator_info in output['moderators']:
+            if moderator_info['moderator']['id'] == pm_sender:
+                is_moderator = True
+                break
+        
+        if not is_moderator:
+            return "not_mod"
+        
+        cursor.execute("DELETE FROM messages WHERE community = ?", (com_name,))
+        conn.commit()
+        return "deleted"
+    
+    except sqlite3.IntegrityError as e:
+            print(f"Integrity error: {e}")
+    except sqlite3.Error as e:
+            print(f"Database error: {e}")
+    except Exception as e:
+            print(f"Unexpected error: {e}")
         
     
 def delete_autopost(pin_id, pm_sender, del_post):
@@ -661,7 +700,7 @@ def check_pms():
                 continue
             
             if status == "not_mod":
-                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". Sorry, you'll need to be a mod of this community before deleting and RSS feed."
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". Sorry, you'll need to be a mod of this community before deleting an RSS feed."
                                              "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue       
@@ -670,76 +709,78 @@ def check_pms():
                 lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". The RSS feed has been deleted for this community."
                                              "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
-                continue                 
-        
-        #mod/admin action - create rss feed in community
-        if pm_context.split(" ")[0] == "#rss":
-            pattern = r'-(url|url_exc|url_inc|title_inc|title_exc|c|t|new_only|ignore)\s*(?:(?:"(.*?)")|(?:“(.*?)”)|([^\s]+))?(?=\s+-|$)'
-
-            filters = {
-                'feed_url': None,
-                'url_excludes_filter': None,
-                'url_contains_filter': None,
-                'title_excludes_filter': None,
-                'title_contains_filter': None,
-                'community': None,
-                'tag': None
-            }
+                continue  
             
-            ignore_bozo_check = False
-            new_only = False
-    
-            matches = re.findall(pattern, pm_context)
-
-            for match in matches:
-                flag = match[0]
-                value = next((m for m in match[1:] if m), None)
-                
-                if flag == 'url':
-                    filters['feed_url'] = value
-                elif flag == 'url_exc':
-                    filters['url_excludes_filter'] = value 
-                elif flag == 'url_inc':
-                    filters['url_contains_filter'] = value
-                elif flag == 'title_inc':
-                    filters['title_contains_filter'] = value
-                elif flag == 'title_exc':
-                    filters['title_excludes_filter']
-                elif flag == 'c':
-                    filters['community'] = value
-                elif flag == 't':
-                    filters['tag'] = value
-                elif flag == 'new_only':
-                    new_only = True
-                elif flag == 'ignore':
-                    ignore_bozo_check = True
-                        
-            if not filters['feed_url']:
-                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". You will need to include a link to an RSS feed for this to work."
+        if pm_context.split(" ")    [0] == "#welcomedelete":
+            com_name = pm_context.split(" ")[1]
+            status = delete_welcome(com_name, pm_sender)
+            
+            if status == "no_exist":
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". Sorry, there is not a Welcome message associated with that community."
                                              "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
-                lemmy.private_message.mark_as_read(pm_id,True)
-                continue
-            
-            if not filters['community']:
-                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". You will need to specify the community you want the RSS feed to be posted to with `-c community_name`."
-                                             "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
-                lemmy.private_message.mark_as_read(pm_id,True)
-                continue
-                
-            output = lemmy.community.get(name=filters['community'])
-            
-            if output == None:
-                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". The community you requested can't be found. Please double check the spelling and name and try again."
-                                            "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
             
-            com_name = filters['community']
-            filters['community'] = lemmy.discover_community(filters['community'])
+            if status == "not_mod":
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". Sorry, you'll need to be a mod of this community before deleting the Welcome message."
+                                             "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
             
-            #check if user is moderator of community
-            is_moderator = False
-
+            
+            if status == "deleted":
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". The Welcome message has been deleted for this community."
+                                             "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue     
+        
+        
+        #mod action - add words to be scanned for community
+        if pm_context.split(" ")[0] == "#comscan":
+            
+            parts = pm_context.split()
+            filters = {
+                'words': None,
+                'community': None,
+                'action': None
+            }
+            
+            flag = None
+            for part in parts:
+                if part.startswith('-'):
+                    flag = part
+                elif flag:
+                    if flag == '-w':
+                        filters['words'] = part.split(',')
+                    elif flag == '-a':
+                        filters['action'] = part
+                    elif flag == '-c':
+                        filters['community'] = part
+                    flag = None
+                    
+            if not filters['community']:
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". You will need to specify the community with the `-c` flag for this tool to work."
+                                            "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
+                lemmy.private_message.mark_as_read(pm_id,True)
+                continue    
+            
+            if not filters['words']:
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". You will need to specify words in a comma seperated list, i.e. `-w word1,word2,word3`."
+                                            "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
+                lemmy.private_message.mark_as_read(pm_id,True)
+                continue  
+            
+            if not filters['action']:
+                filters['action'] = "report"
+                
+            if filters['action'] != "report" and filters['action'] != "remove":
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". You've not defined a valid action to take. Please ensure you either use `-a report` or `-a remove`."
+                                            "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
+                lemmy.private_message.mark_as_read(pm_id,True)
+                continue  
+            
+            output = lemmy.community.get(name=filters['community'])
+            
             for moderator_info in output['moderators']:
                 if moderator_info['moderator']['id'] == pm_sender:
                     is_moderator = True
@@ -747,65 +788,229 @@ def check_pms():
 
             if not is_moderator:
                 #if pm_sender is not a moderator, send a private message
-                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". As you are not the moderator of this community, you are not able to add an RSS feed to it."
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". As you are not the moderator of this community, you are not able to use this tool for it."
                                             "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
-            
-            #check url is a valid rss feed
-            feed_url = filters['feed_url']
-            valid_rss = feedparser.parse(feed_url)
-            if not ignore_bozo_check and (valid_rss.bozo != 0 or 'title' not in valid_rss.feed):
-                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". I can't find a valid RSS feed in the URL you've provided. Please double check you're linking directly to an RSS feed."
-                                            "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
-            
-            else:
-                add_new_feed_result = add_new_feed(
-                filters['feed_url'],
-                filters['url_contains_filter'],
-                filters['url_excludes_filter'],
-                filters['title_contains_filter'],
-                filters['title_excludes_filter'],
+                
+            word_add_result = add_community_word(
                 filters['community'],
-                filters['tag']
+                filters['words'],
+                filters['action']
                 )
-                
-                if add_new_feed_result == "exists":
-                    lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + f". The RSS feed you're trying to add already exists in the [{com_name}](/c/{com_name}@{settings.INSTANCE}) community.", pm_sender)
-                elif add_new_feed_result is None:
-                    lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + f". An error occurred while adding the RSS feed. Please try again.", pm_sender)
-                else:
-                    feed_id = add_new_feed_result
-                    lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + f". I have successfully added the requested RSS feed to the [{com_name}](/c/{com_name}@{settings.INSTANCE}) community. The ID for this RSS feed is {add_new_feed_result} - please keep this safe as you'll need it if you want to delete the feed in the future.", pm_sender)
-                
+            
+            if word_add_result == "added":
+                lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". Your list of words has been created/updated. ZippyBot will scan for these words and action them as requested."
+                                            "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
                 lemmy.private_message.mark_as_read(pm_id, True)
-                
-                if new_only == True:
-                    with connect_to_rss_db() as conn:
-                        cursor = conn.cursor()
-                        cursor.execute("""
-                            SELECT feed_id, feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag
-                            FROM feeds
-                            WHERE feed_url = ?
-                            """, (feed_url,))
-                        
-                        feed_details = cursor.fetchone()
-                        
-                    if feed_details:
-                        feed_id, feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag = feed_details
-                        posts = fetch_latest_posts(feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag)
-                        for post in posts:
-                            insert_new_post(feed_id, post)
+                continue        
+        
+            
                     
+                 
+        #mod action - add welcome message to community
+        if pm_context.split(" ")[0] == "#welcome":
+            try:
 
-            continue
+                filters = {
+                    'community': None,
+                    'message': None
+                }
+
+                c_index = pm_context.find('-c')
+                m_index = pm_context.find('-m')
+                
+                # Extract community name
+                if c_index != -1 and m_index != -1:
+                    community_name = pm_context[c_index+3:m_index].strip()
+                    filters['community'] = community_name
+
+                # Extract message, considering everything after "-m"
+                if m_index != -1:
+                    message = pm_context[m_index+3:].strip(' “”"\'\n')
+                    filters['message'] = message
+                                
+                if not filters['message']:
+                    lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". Sorry, you can't have a blank welcome message for a community. Please include some text, personalise the message and make it welcoming and friendly!"
+                                                "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
+                    lemmy.private_message.mark_as_read(pm_id,True)
+                    continue
+                
+                output = lemmy.community.get(name=filters['community'])
+                
+                if output == None:
+                    lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". The community you requested can't be found. Please double check the spelling and name and try again."
+                                                "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
+                    lemmy.private_message.mark_as_read(pm_id, True)
+                    continue
+                              
+                for moderator_info in output['moderators']:
+                    if moderator_info['moderator']['id'] == pm_sender:
+                        is_moderator = True
+                        break
+
+                if not is_moderator:
+                    #if pm_sender is not a moderator, send a private message
+                    lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". As you are not the moderator of this community, you are not able to set a welcome message for it."
+                                                "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
+                    lemmy.private_message.mark_as_read(pm_id, True)
+                    continue
+                
+                welcome_message_result = add_welcome_message(
+                    filters['community'],
+                    filters['message']
+                    )
+                
+                if welcome_message_result == "added":
+                    lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". I have successfully added the welcome message to the community. You can run this command again to change the message."
+                                                "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
+                    lemmy.private_message.mark_as_read(pm_id, True)             
+                continue
+            except Exception as e:
+                logging.error(f"An error occurred: {e}")               
+        
+        #mod/admin action - create rss feed in community
+        if pm_context.split(" ")[0] == "#rss":
+            try:
+                pattern = r'-(url|url_exc|url_inc|title_inc|title_exc|c|t|new_only|ignore|b)\s*(?:(?:"(.*?)")|(?:“(.*?)”)|([^\s]+))?(?=\s+-|$)'
+
+                filters = {
+                    'feed_url': None,
+                    'url_excludes_filter': None,
+                    'url_contains_filter': None,
+                    'title_excludes_filter': None,
+                    'title_contains_filter': None,
+                    'community': None,
+                    'tag': None
+                }
+                
+                ignore_bozo_check = False
+                new_only = False
+                body = False
+        
+                matches = re.findall(pattern, pm_context)
+
+                for match in matches:
+                    flag = match[0]
+                    value = next((m for m in match[1:] if m), None)
+                    
+                    if flag == 'url':
+                        filters['feed_url'] = value
+                    elif flag == 'url_exc':
+                        filters['url_excludes_filter'] = value 
+                    elif flag == 'url_inc':
+                        filters['url_contains_filter'] = value
+                    elif flag == 'title_inc':
+                        filters['title_contains_filter'] = value
+                    elif flag == 'title_exc':
+                        filters['title_excludes_filter']
+                    elif flag == 'c':
+                        filters['community'] = value
+                    elif flag == 't':
+                        filters['tag'] = value
+                    elif flag == 'new_only':
+                        new_only = True
+                    elif flag == 'ignore':
+                        ignore_bozo_check = True
+                    elif flag == 'b':
+                        body = True
+                            
+                if not filters['feed_url']:
+                    lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". You will need to include a link to an RSS feed for this to work."
+                                                "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
+                    lemmy.private_message.mark_as_read(pm_id,True)
+                    continue
+                
+                if not filters['community']:
+                    lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". You will need to specify the community you want the RSS feed to be posted to with `-c community_name`."
+                                                "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
+                    lemmy.private_message.mark_as_read(pm_id,True)
+                    continue
+                    
+                output = lemmy.community.get(name=filters['community'])
+                
+                if output == None:
+                    lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". The community you requested can't be found. Please double check the spelling and name and try again."
+                                                "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
+                    lemmy.private_message.mark_as_read(pm_id, True)
+                    continue
+                
+                com_name = filters['community']
+                filters['community'] = lemmy.discover_community(filters['community'])
+                
+                #check if user is moderator of community
+                is_moderator = False
+
+                for moderator_info in output['moderators']:
+                    if moderator_info['moderator']['id'] == pm_sender:
+                        is_moderator = True
+                        break
+
+                if not is_moderator:
+                    #if pm_sender is not a moderator, send a private message
+                    lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". As you are not the moderator of this community, you are not able to add an RSS feed to it."
+                                                "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
+                    lemmy.private_message.mark_as_read(pm_id, True)
+                    continue
+                
+                #check url is a valid rss feed
+                feed_url = filters['feed_url']
+                valid_rss = feedparser.parse(feed_url)
+                if not ignore_bozo_check and (valid_rss.bozo != 0 or 'title' not in valid_rss.feed):
+                    lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". I can't find a valid RSS feed in the URL you've provided. Please double check you're linking directly to an RSS feed."
+                                                "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
+                    lemmy.private_message.mark_as_read(pm_id, True)
+                    continue
+                
+                else:
+                    add_new_feed_result = add_new_feed(
+                    filters['feed_url'],
+                    filters['url_contains_filter'],
+                    filters['url_excludes_filter'],
+                    filters['title_contains_filter'],
+                    filters['title_excludes_filter'],
+                    filters['community'],
+                    filters['tag'],
+                    filters['body']
+                    )
+                    
+                    if add_new_feed_result == "exists":
+                        lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + f". The RSS feed you're trying to add already exists in the [{com_name}](/c/{com_name}@{settings.INSTANCE}) community.", pm_sender)
+                    elif add_new_feed_result is None:
+                        lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + f". An error occurred while adding the RSS feed. Please try again.", pm_sender)
+                    else:
+                        feed_id = add_new_feed_result
+                        lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + f". I have successfully added the requested RSS feed to the [{com_name}](/c/{com_name}@{settings.INSTANCE}) community. The ID for this RSS feed is {add_new_feed_result} - please keep this safe as you'll need it if you want to delete the feed in the future.", pm_sender)
+                    
+                    lemmy.private_message.mark_as_read(pm_id, True)
+                    
+                    if new_only == True:
+                        with connect_to_rss_db() as conn:
+                            cursor = conn.cursor()
+                            cursor.execute("""
+                                SELECT feed_id, feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag
+                                FROM feeds
+                                WHERE feed_url = ?
+                                """, (feed_url,))
+                            
+                            feed_details = cursor.fetchone()
+                            
+                        if feed_details:
+                            feed_id, feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag = feed_details
+                            posts = fetch_latest_posts(feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag)
+                            for post in posts:
+                                insert_new_post(feed_id, post)
+                        
+
+                continue
+            except Exception as e:
+                logging.error(f"An error occurred: {e}")
             
         #mod action - pin a post
         if pm_context.split(" ")[0] == '#autopost':
              #define the pattern to match each qualifier and its following content
-            pattern = r"-(c|t|b|u|d|h|f) (.*?)(?=\s-\w|$)"
+            pattern = r"-(c|t|b|u|d|h|f)\s+(\"[^\"]*\"|'[^']*'|[^\"\s-][^\s-]*)"
+
             
             #find all matches
             matches = re.findall(pattern, pm_context)
@@ -823,6 +1028,9 @@ def check_pms():
 
             #map the matches to the correct keys in the dictionary
             for key, value in matches:
+        # If the value is wrapped in quotes, remove the quotes
+                if value.startswith('"') and value.endswith('"') or value.startswith("'") and value.endswith("'"):
+                    value = value[1:-1]
                 if key == 'c':
                     post_data['community'] = value
                 elif key == 't':
@@ -955,7 +1163,7 @@ def check_pms():
                 if post_data['day'] and post_data['time']:
                     datetime_string = f"{post_data['day']} {post_data['time']}"
                     datetime_obj = datetime.strptime(datetime_string, '%Y%m%d %H:%M')
-                    uk_timezone = pytz.timezone('Europe/London')
+                    uk_timezone = pytz.timezone('UTC')
                     localized_datetime = uk_timezone.localize(datetime_obj)
                     post_data['scheduled_post'] = localized_datetime.astimezone(pytz.utc)
                     next_post_date = post_data['scheduled_post']
@@ -1258,73 +1466,102 @@ def steam_deals():
             lemmy.post.create(community_id,name="Steam Deal: " + deal_title, url=steam_url)
 
 def RSS_feed():
-    with connect_to_rss_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("""
-            SELECT feed_id, feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag
-            FROM feeds
-        """)
-        feeds = cursor.fetchall()
-    
-    for feed in feeds:
-        feed_id, feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag = feed
-        posts = fetch_latest_posts(feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag)
-        for post in posts:
-            if insert_new_post(feed_id, post):
-                if tag:
-                    post_title = f"[{tag}] " + post['title']
-                else:
-                    post_title = post['title']
-                #actually post to lemmy here
-                lemmy.post.create(community_id=int(community), name=post_title, url=post['post_url'])
+    try:
+        with connect_to_rss_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT feed_id, feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag
+                FROM feeds
+            """)
+            feeds = cursor.fetchall()
+        
+        for feed in feeds:
+            feed_id, feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag = feed
+            posts = fetch_latest_posts(feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag)
+            
+            if not isinstance(posts, list):
+                logging.error(f"Failed to fetch posts for feed URL {feed_url}. Error: {posts}")
+                continue
+            
+            for post in posts:
+                if insert_new_post(feed_id, post):
+                    if tag:
+                        post_title = f"[{tag}] " + post['title']
+                    else:
+                        post_title = post['title']
+                    #actually post to lemmy here
+                    logging.debug("Creating an RSS post.")
+                    lemmy.post.create(community_id=int(community), name=post_title, url=post['post_url'])
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+        return "error"
 
     
 def fetch_rss_feeds():
-    with connect_to_rss_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT feed_id, feed_url FROM feeds")
-        feeds = cursor.fetchall()
-    return feeds
+    try:
+        logging.debug("Connecting to RSS DB to fetch RSS feeds")
+        with connect_to_rss_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT feed_id, feed_url FROM feeds")
+            feeds = cursor.fetchall()
+        return feeds
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+        return "error"
 
 def fetch_latest_posts(feed_url, url_contains_filter=None, url_excludes_filter=None, title_contains_filter=None, title_excludes_filter=None, community=None, tag=None):
-    feed = feedparser.parse(feed_url)
-    filtered_posts = []
-    for entry in feed.entries[:3]:
-        post_url = entry.link
-        post_content = entry.title + ' ' + entry.summary if hasattr(entry, 'summary') else entry.title
-        
-        #URL filter
-        if url_contains_filter and not any(filter_word in post_url for filter_word in url_contains_filter.split(',')):
-            continue
-        if url_excludes_filter and any(filter_word in post_url for filter_word in url_excludes_filter.split(',')):
-            continue 
-        
-        #title filter
-        if title_contains_filter and not any(word in post_content for word in title_contains_filter.split(',')):
-            continue
-        if title_excludes_filter and any(word in post_content for word in title_excludes_filter.split(',')):
-            continue
-        
-        filtered_posts.append({
-            'post_url': post_url,
-            'title': entry.title,
-            'description': entry.summary if hasattr(entry, 'summary') else '',
-            'post_date': entry.published if hasattr(entry, 'published') else ''
-        })
-    return filtered_posts
+    try:
+        logging.debug(f"Fetching latest RSS posts from {feed_url}.")
+        response = requests.head(feed_url)
+        if response.status_code != 200:
+            logging.error(f"Failed to access URL {feed_url}. HTTP status code: {response.status_code}")
+            return "URL access error"
 
+        feed = feedparser.parse(feed_url)
+                
+        filtered_posts = []
+        for entry in feed.entries[:3]:
+            post_url = entry.link
+            post_content = entry.title + ' ' + entry.summary if hasattr(entry, 'summary') else entry.title
+            
+            #URL filter
+            if url_contains_filter and not any(filter_word in post_url for filter_word in url_contains_filter.split(',')):
+                continue
+            if url_excludes_filter and any(filter_word in post_url for filter_word in url_excludes_filter.split(',')):
+                continue 
+            
+            #title filter
+            if title_contains_filter and not any(word in post_content for word in title_contains_filter.split(',')):
+                continue
+            if title_excludes_filter and any(word in post_content for word in title_excludes_filter.split(',')):
+                continue
+            
+            filtered_posts.append({
+                'post_url': post_url,
+                'title': entry.title,
+                'description': entry.summary if hasattr(entry, 'summary') else '',
+                'post_date': entry.published if hasattr(entry, 'published') else ''
+            })
+        return filtered_posts
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+        return "error"
 
 def insert_new_post(feed_id, post):
-    with connect_to_rss_db() as conn:
-        cursor = conn.cursor()
-        cursor.execute("SELECT post_id FROM posts WHERE post_url = ?", (post['post_url'],))
-        if cursor.fetchone() is None:
-            cursor.execute("INSERT INTO posts (feed_id, post_url, title, description, posted, post_date) VALUES (?, ?, ?, ?, ?, ?)",
-                           (feed_id, post['post_url'], post['title'], post['description'], 0, post['post_date']))
-            conn.commit()
-            return True
-    return False
-
+    try:
+        logging.debug("Inserting new post to RSS DB")
+        with connect_to_rss_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT post_id FROM posts WHERE post_url = ?", (post['post_url'],))
+            if cursor.fetchone() is None:
+                cursor.execute("INSERT INTO posts (feed_id, post_url, title, description, posted, post_date) VALUES (?, ?, ?, ?, ?, ?)",
+                            (feed_id, post['post_url'], post['title'], post['description'], 0, post['post_date']))
+                conn.commit()
+                return True
+        return False
+    except Exception as e:
+        logging.error(f"An error occurred: {e}")
+        return "error"
 
 def add_new_feed(feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag):
     conn = connect_to_rss_db()
@@ -1353,8 +1590,63 @@ def add_new_feed(feed_url, url_contains_filter, url_excludes_filter, title_conta
         return None  
     finally:
         conn.close() 
+             
+def add_welcome_message(community, message):
+    conn = connect_to_welcome_db()
+    cursor = conn.cursor()
+    
+    insert_query = """
+    INSERT OR REPLACE INTO messages (community, message) 
+    VALUES (?, ?)
+    """
+    
+    values = (community, message)
+    
+    try:
+        cursor.execute(insert_query, values)
+        conn.commit()
+        return "added"
+    except sqlite3.IntegrityError as e:
+        print(f"An error occurred: {e}")
+        return None  
+    finally:
+        conn.close() 
+ 
+def add_community_word(community, words, action):
+    conn = connect_to_mod_db()
+    cursor = conn.cursor()
+    
+    if isinstance(words, str):
+        new_words_set = set(words.split(','))
+    elif isinstance(words, list):
+        new_words_set = set(words)
+    
+    #fetch current list of words
+    cursor.execute("SELECT words FROM community_words WHERE community = ?", (community,))
+    result = cursor.fetchone()
+    if result:
+        current_words = result[0].split(',')  # Assuming words are stored as a comma-separated string
+    else:
+        current_words = []
+    
+    updated_words_set = set(current_words).union(new_words_set)
+    
+    updated_words = ','.join(updated_words_set)
+    
+    if result:
+        # Update the existing entry
+        cursor.execute("UPDATE community_words SET words = ? WHERE community = ? AND action = ?", (updated_words, community, action))
+    else:
+        # Insert a new entry if none existed
+        cursor.execute("INSERT INTO community_words (community, words, action) VALUES (?, ?, ?)", (community, updated_words, action))
+    
+    conn.commit()
+    conn.close()
+    
+    return "added"    
 
 
+    
 def add_deal_to_db(deal_title, deal_published):            
     try:
         with connect_to_games_db() as conn:
@@ -1382,22 +1674,65 @@ def check_comments():
     for comment in recent_comments:
         comment_id = comment['comment']['id']
         comment_text = comment['comment']['content']
-        comment_poster = comment['comment']['creator_id']
+        comment_poster = comment['creator']['id']
 
         #check if it has already been scanned
         if check_comment_db(comment_id) == "duplicate":
             continue
         
-        regex_pattern = re.compile(settings.SLUR_REGEX)
-        if re.search(regex_pattern,comment_text):
-            #matching word found
-            lemmy.comment.report(comment_id,reason="Word in comment appears on slur list - Automated report by " + bot_strings.BOT_NAME)
+        #check if its a comment by a mod to delete a post
+        if comment_text == "#delete":
+            community = comment['community']['id']
+            post = comment['post']['id']
+            poster = comment['post']['creator_id']
+            
+            output = lemmy.community.get(id=community)
+            
+            for moderator_info in output['moderators']:
+                if moderator_info['moderator']['id'] == comment_poster:
+                    if poster == settings.BOT_ID:
+                        lemmy.post.delete(post_id=post,deleted=True)
+                            
+        community_name = comment['community']['name']
+        
+        # Initialize match flags for each post
+        match_found_text = False
+        
+        with connect_to_mod_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT words FROM community_words WHERE community = ?", (community_name,))
+            result = cursor.fetchone()
+            if result:
+                db_words_set = set(result[0].split(','))
+
+                text_words_set = set(comment_text.lower().split())
+                
+                match_found_text = bool(db_words_set & text_words_set)
+                          
+        if match_found_text:
+            lemmy.comment.report(comment_id,reason="Word in comment appears on community banned list - Automated report by " + bot_strings.BOT_NAME)
             mod_action = "Comment Flagged"
             logging.info("Word matching regex found in content, reported.")
+        
         else:
             mod_action = "None"
-        
+            
         add_comment_to_db(comment_id, comment_poster, mod_action)
+        
+        #admin matrix report
+        regex_pattern = re.compile(settings.SLUR_REGEX)
+        match_found = False
+
+        if re.search(regex_pattern,comment_text):
+            match_found = True
+        
+        if match_found:
+            matrix_body = "Word(s) matching banned list appearing in comment https://" + settings.INSTANCE + "/comment/" + str(comment_id) + ". - Please review urgently."
+            asyncio.run(send_matrix_message(matrix_body))
+            break 
+        
+        
+        
 
 def check_comment_db(comment_id):
     try:
@@ -1426,28 +1761,55 @@ def add_comment_to_db(comment_id, comment_poster, mod_action):
     except Exception as e:
         logging.error(f"An error occurred: {e}")
     return "error"
-    
-def connect_to_mod_db():
-    return sqlite3.connect('resources/mod_actions.db')
 
 def check_posts():
-    recent_posts = lemmy.post.list(limit=10,sort=SortType.New,type_=ListingType.Local)
+    recent_posts = lemmy.post.list(limit=10, sort=SortType.New, type_=ListingType.Local)
     for post in recent_posts:
         post_id = post['post']['id']
         post_title = post['post']['name']
+
+        # check if post has already been scanned
+        if check_post_db(post_id) == "duplicate":
+            continue
+
         # Check if 'body' exists in the 'post' dictionary
         if 'body' in post['post']:
             post_text = post['post']['body']
         else:
-            post_text = "No body found" 
-        
+            post_text = "No body found"
+
         poster_id = post['creator']['id']
         poster_name = post['creator']['name']
+        community_name = post['community']['name']
+        
+        # Initialize match flags for each post
+        match_found_text = False
+        match_found_title = False
+        
+        with connect_to_mod_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT words FROM community_words WHERE community = ?", (community_name,))
+            result = cursor.fetchone()
+            if result:
+                db_words_set = set(result[0].split(','))
 
-        #check if post has already been scanned
-        if check_post_db(post_id) == "duplicate":
-            continue
+                text_words_set = set(post_text.lower().split())
+                title_words_set = set(post_title.lower().split())
 
+                # Check for word matches in text and title
+                match_found_text = bool(db_words_set & text_words_set)
+                match_found_title = bool(db_words_set & title_words_set)
+        
+        if match_found_text or match_found_title:
+            lemmy.post.report(post_id, reason="Word in post by user " + poster_name + " appears on community slur list - Automated report by " + bot_strings.BOT_NAME)
+            mod_action = "Post Flagged"
+            logging.info(f"Word matching community ban list found in post by {poster_name}, reported.")
+        else:
+            mod_action = "None"
+
+        add_post_to_db(post_id, poster_id, mod_action)
+                
+        #admin matrix report
         regex_pattern = re.compile(settings.SLUR_REGEX)
         match_found = False
 
@@ -1456,16 +1818,11 @@ def check_posts():
         if re.search(regex_pattern,post_title):
             match_found = True
 
-        if match_found == True:
-            #matching word found
-            lemmy.post.report(post_id,reason="Word in post by user " + poster_name + " appears on slur list - Automated report by " + bot_strings.BOT_NAME)
-            mod_action = "Post Flagged"
-            logging.info("Word matching regex found in content, reported.")
-        else:
-            mod_action = "None"
-        
-        add_post_to_db(post_id, poster_id, mod_action)
-
+        if match_found:
+            matrix_body = "Word(s) matching banned list appearing in post https://" + settings.INSTANCE + "/post/" + str(post_id) + ". - Please review urgently."
+            asyncio.run(send_matrix_message(matrix_body))
+            break     
+            
 
 def check_post_db(post_id):
     try:
@@ -1525,7 +1882,7 @@ def broadcast_status(pm_sender, status):
         if status == "unsub":    
             query = "UPDATE users SET subscribed = 0 WHERE public_user_id = ?"
             cursor.execute(query, (pm_sender,))
-            conn.commit()  # Committing the transaction
+            conn.commit()  
             logging.debug("User unsubscribed successfully")
             return "successful"
 
@@ -1533,7 +1890,7 @@ def broadcast_status(pm_sender, status):
         if status == "sub":
             query = "UPDATE users SET subscribed = 1 WHERE public_user_id = ?"
             cursor.execute(query, (pm_sender,))
-            conn.commit()  # Committing the transaction
+            conn.commit()  
             logging.debug("User subscribed successfully")
             return "successful"
         
@@ -1543,7 +1900,7 @@ def post_reports():
     recent_reports = lemmy.post.report_list(limit=5, unresolved_only="true")
 
     #define words in the report that will trigger the urgent message
-    serious_words= ["csam", "illegal", "kill", "suicide"]
+    serious_words = settings.SERIOUS_WORDS.split(',')
 
     if recent_reports:
         #recent_reports = lemmy.post.report_list(limit=10)
@@ -1557,13 +1914,7 @@ def post_reports():
             ap_id = report['post']['ap_id']
             reported_content_id = report['post_report']['post_id']
 
-            report_reason = report_reason.lower()
-
-            for word in serious_words:
-                if word in report_reason and settings.MATRIX_FLAG:
-                    matrix_body = "Report from " + creator + " regarding a post at https://" + settings.INSTANCE + "/post/" + str(reported_content_id) + ". The user gave the report reason: " + report_reason + " - Please review urgently."
-                    asyncio.run(send_matrix_message(matrix_body))
-                    break              
+            report_reason = report_reason.lower()       
 
             local_post = re.search(settings.INSTANCE, str(ap_id))
             ## REPORTS ##
@@ -1573,16 +1924,8 @@ def post_reports():
                 if local_user:
                     report_reply = bot_strings.REPORT_LOCAL
                 # reporter is from a different instance
-                else:
-                    report_reply = bot_strings.REPORT_REMOTE
-
-            # Against content on Local instance (either by a local user or remote user)
-            if local_post:
-                # reporter is a local user
-                if local_user:
-                    report_reply = bot_strings.REPORT_LOCAL_LOCAL
-                else:
-                    report_reply = bot_strings.REPORT_LOCAL_REMOTE
+                #else:
+                    #report_reply = bot_strings.REPORT_REMOTE
 
             with connect_to_reports_db() as conn:
                 check_reports = '''SELECT report_id FROM post_reports WHERE report_id=?'''
@@ -1595,6 +1938,12 @@ def post_reports():
                     execute_sql_query(conn, sqlite_insert_query, data_tuple)
             
                     lemmy.private_message.create("Hello " + creator + ",\n\n" + report_reply + "\n \n" + bot_strings.PM_SIGNOFF, creator_id)
+                    
+                    for word in serious_words:
+                        if word in report_reason and settings.MATRIX_FLAG:
+                            matrix_body = "Report from " + creator + " regarding a post at https://" + settings.INSTANCE + "/post/" + str(reported_content_id) + ". The user gave the report reason: " + report_reason + " - Please review urgently."
+                            asyncio.run(send_matrix_message(matrix_body))
+                            break     
 
 def comment_reports():
     recent_reports = lemmy.comment.report_list(limit=5, unresolved_only="true")
@@ -1615,14 +1964,7 @@ def comment_reports():
             ap_id = report['comment']['ap_id']
             reported_content_id = report['comment_report']['comment_id']
 
-            report_reason = report_reason.lower()
-
-            for word in serious_words:
-                if word in report_reason and settings.MATRIX_FLAG:
-                    #write message to send to matrix
-                    matrix_body = "Report from " + creator + " regarding a comment at https://" + settings.INSTANCE + "/comment/" + str(reported_content_id) + ". The user gave the report reason: " + report_reason + " - Please review urgently."
-                    asyncio.run(send_matrix_message(matrix_body))
-                    break     
+            report_reason = report_reason.lower() 
             
             local_post = re.search(settings.INSTANCE, str(ap_id))
 
@@ -1633,8 +1975,8 @@ def comment_reports():
                 if local_user:
                     report_reply = bot_strings.REPORT_LOCAL
                 # reporter is from a different instance
-                else:
-                    report_reply = bot_strings.REPORT_REMOTE
+                #else:
+                    #report_reply = bot_strings.REPORT_REMOTE
 
                         
             with connect_to_reports_db() as conn:
@@ -1643,10 +1985,17 @@ def comment_reports():
 
                 if not report_match:
                     sqlite_insert_query = """INSERT INTO comment_reports (report_id, reporter_id, reporter_name, report_reason, comment_id) VALUES (?,?,?,?,?);"""
-                    data_tuple = (report_id, reporter_id, reporter, report_reason, reported_content_id,)
+                    data_tuple = (report_id, reporter_id, creator, report_reason, reported_content_id,)
                     execute_sql_query(conn, sqlite_insert_query, data_tuple)
             
-                    lemmy.private_message.create("Hello " + reporter + ",\n\n" + report_reply + "\n \n" + bot_strings.PM_SIGNOFF, reporter_id)
+                    lemmy.private_message.create("Hello " + creator + ",\n\n" + report_reply + "\n \n" + bot_strings.PM_SIGNOFF, reporter_id)
+                    
+                    for word in serious_words:
+                        if word in report_reason and settings.MATRIX_FLAG:
+                            #write message to send to matrix
+                            matrix_body = "Report from " + creator + " regarding a comment at https://" + settings.INSTANCE + "/comment/" + str(reported_content_id) + ". The user gave the report reason: " + report_reason + " - Please review urgently."
+                            asyncio.run(send_matrix_message(matrix_body))
+                            break    
 
 
 def check_reports():
@@ -1753,7 +2102,9 @@ def check_scheduled_posts():
                     cursor.execute(query, (record_id,))
                     conn.commit()
                     continue
-
+                
+                if post_body is None:
+                    post_body = ""
                 #format body string
                 post_body = post_body.replace("%m", current_utc.strftime("%B")) #Month name
                 post_body = post_body.replace("%d", current_utc.strftime("%d")) #Day of the month
