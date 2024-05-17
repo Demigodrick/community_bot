@@ -970,8 +970,7 @@ def check_pms():
                     filters['title_contains_filter'],
                     filters['title_excludes_filter'],
                     filters['community'],
-                    filters['tag'],
-                    filters['body']
+                    filters['tag']
                     )
                     
                     if add_new_feed_result == "exists":
@@ -1243,6 +1242,20 @@ def check_pms():
                     check_dbs()
                     lemmy.private_message.mark_as_read(pm_id, True)
                     continue
+    
+        if pm_context.split(" ")[0] == "#reject":
+            parts = pm_context.split("#")
+            if len(parts) > 1 and parts[1].strip() == "reject":
+                if pm_sender == 9532930:
+                    user = parts[2].strip()
+                    rejection = parts[3].strip()
+                    reject_user(user, rejection)
+                    lemmy.private_message.mark_as_read(pm_id, True)
+                
+                else:
+                    lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". Sorry, you can't use this command. \n \n" + bot_strings.PM_SIGNOFF, pm_sender)
+                    lemmy.private_message.mark_as_read(pm_id, True)
+                    continue        
 
         #keep this at the bottom
         else:
@@ -1294,11 +1307,14 @@ def get_new_users():
             if is_spam_email(email, spam_domains):
                 logging.info("User " + username + " tried to register with a potential spam email: " + email)
                 
-                admin_ids = settings.ADMIN_ID.split(',')
-                pm_message = "Hello, new user [" + username + "](https://" + settings.INSTANCE + "/u/" + username + ") with ID " + str(public_user_id) + " has signed up with an email address that may be a temporary or spam email address: (" + email + "). Please manually review before approving."
+                #admin_ids = settings.ADMIN_ID.split(',')
+                #pm_message = "Hello, new user [" + username + "](https://" + settings.INSTANCE + "/u/" + username + ") with ID " + str(public_user_id) + " has signed up with an email address that may be a temporary or spam email address: (" + email + "). Please manually review before approving."
                
-                for admin_id in admin_ids:
-                    lemmy.private_message.create(pm_message, int(admin_id))   
+                #for admin_id in admin_ids:
+                #    lemmy.private_message.create(pm_message, int(admin_id))   
+                
+                matrix_body = "New user [" + username + "](https://" + settings.INSTANCE + "/u/" + username + ") with ID " + str(public_user_id) + " has signed up with an email address that may be a temporary or spam email address: (" + email + ")"
+                asyncio.run(send_matrix_message(matrix_body))
 
             if settings.EMAIL_FUNCTION == True:    
                 welcome_email(email)
@@ -1874,6 +1890,36 @@ def broadcast_message(message):
     finally:
         if cursor:
             cursor.close()
+
+def reject_user(user, rejection):
+    with connect_to_users_db() as conn:
+        cursor = conn.cursor()
+        query = "SELECT email from users WHERE local_user_id = ?"
+        result = execute_sql_query(conn, query, (user,))
+        
+        email = result[0]
+        logging.info("Rejection email sent to " + email)
+        
+        message = MIMEMultipart()
+        message['From'] = settings.SENDER_EMAIL
+        message['To'] = email
+        message['Subject'] = "Lemmy.zip - Application Rejected"
+
+        #use this for a simple text email, uncomment below:
+        body = "We've rejected your Lemmy.zip application. In order to create an inclusive, active, and spam-free Lemmy instance, we manually review each application. If you think this was a mistake, please email us at hello@lemmy.zip from the email address you created your account with and make sure to include your username, and we'll take a look. \n\n Your account was rejected for the following reason: " + rejection
+        message.attach(MIMEText(body, 'plain'))
+        
+        try:
+            server = smtplib.SMTP(settings.SMTP_SERVER, settings.SMTP_PORT)
+            server.starttls()
+            server.login(settings.SENDER_EMAIL, settings.SENDER_PASSWORD)
+            server.sendmail(settings.SENDER_EMAIL, email, message.as_string())
+            logging.info("Rejection email sent successfully")
+        except Exception as e:
+            logging.error("Error: Unable to send email.", str(e))
+        finally:
+            server.quit
+        
 
 def broadcast_status(pm_sender, status):
     with connect_to_users_db() as conn:
