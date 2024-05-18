@@ -1313,7 +1313,7 @@ def get_new_users():
                 #for admin_id in admin_ids:
                 #    lemmy.private_message.create(pm_message, int(admin_id))   
                 
-                matrix_body = "New user [" + username + "](https://" + settings.INSTANCE + "/u/" + username + ") with ID " + str(public_user_id) + " has signed up with an email address that may be a temporary or spam email address: (" + email + ")"
+                matrix_body = "New user " + username + " (https://" + settings.INSTANCE + "/u/" + username + ") with ID " + str(public_user_id) + " has signed up with an email address that may be a temporary or spam email address: " + email
                 asyncio.run(send_matrix_message(matrix_body))
 
             if settings.EMAIL_FUNCTION == True:    
@@ -1464,7 +1464,7 @@ def steam_deals():
     #loop through 10 entries
     for entry in feed.entries[:10]:
         content_value = entry.content[0]['value']
-        steam_url = re.search(r'https://store.steampowered.com/app/\d+/\w+/', str(content_value))
+        steam_url = re.search(r'https://store\.steampowered\.com/app/\d+/\w+/', str(content_value))
         
         deal_published = entry.published
         deal_title = entry.title
@@ -2023,6 +2023,8 @@ def comment_reports():
                 # reporter is from a different instance
                 #else:
                     #report_reply = bot_strings.REPORT_REMOTE
+                else:
+                    continue
 
                         
             with connect_to_reports_db() as conn:
