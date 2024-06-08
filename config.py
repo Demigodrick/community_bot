@@ -23,6 +23,7 @@ class Settings(BaseSettings):
     MATRIX_ACCOUNT: str
     ADMIN_ID: str
     RSS_ENABLED: bool
+    GIVEAWAY_ENABLED: bool
 
 
     class Config:

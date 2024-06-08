@@ -15,6 +15,7 @@ import asyncio
 from nio import AsyncClient, MatrixRoom, RoomMessageText
 import pytz
 import bot_strings
+import random
 
 import smtplib
 from email.mime.text import MIMEText
@@ -44,9 +45,8 @@ logger.addHandler(stream_handler)
 ####################### N O T E S ###############################
 #  Add in reports for messages (doesnt exist in pythorhead yet)
 #  anti-spam measure for an ID?
-#  Check applications for declined applications, send email confirming declined. 
-#  Use reason if included otherwise generic text.
-#  fix report remote
+#  giveaways - db with table for giveaway id and thread number, and a table for entrants (ticket system - zippy to randomly pull a number)
+#  pm a user their ticket number. remove posts that aren't from a local user. remove posts from accounts that aren't old enough. Remove duplicate posts.
 
 def login():
     global lemmy
@@ -132,7 +132,12 @@ def check_dbs():
 
         with sqlite3.connect('resources/autopost.db') as conn:
             create_table(conn, 'com_posts', '(pin_id INTEGER PRIMARY KEY AUTOINCREMENT, community_id INT, mod_id INT, post_title TEXT, post_url TEXT, post_body TEXT, scheduled_post TIME, frequency TEXT, previous_post INT)')
-
+            
+        with sqlite3.connect('resources/giveaway.db') as conn:
+            create_table(conn, 'giveaways', '(giveaway_id INTEGER PRIMARY KEY, thread_id TEXT, status TEXT DEFAULT "active")')
+            
+            create_table(conn, 'entrants', '(ticket_number INTEGER PRIMARY KEY AUTOINCREMENT, giveaway_id INTEGER, username TEXT, entry_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (giveaway_id) REFERENCES giveaways (giveaway_id), UNIQUE (giveaway_id, username))')
+            
 
     except sqlite3.Error as e:
         logging.error(f"Database error: {e}")
@@ -159,6 +164,9 @@ def connect_to_autopost_db():
 
 def connect_to_mod_db():
     return sqlite3.connect('resources/mod_actions.db')
+
+def connect_to_giveaway_db():
+    return sqlite3.connect('resources/giveaway.db')
 
 def execute_sql_query(connection, query, params=()):
     with connection:
@@ -680,7 +688,48 @@ def check_pms():
             else:
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
-
+        
+        if pm_context.split(" ")[0] == "#giveaway":
+            if user_admin == True:
+                thread_id = pm_context.split(" ")[1]
+                add_giveaway_thread(thread_id)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
+            else:
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
+            
+        if pm_context.split(" ")[0] == "#closegiveaway":
+            if user_admin == True:
+                thread_id = pm_context.split(" ")[1]
+                close_giveaway_thread(thread_id)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
+            else:
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
+                
+        if pm_context.split(" ")[0] == "#drawgiveaway":
+            if user_admin == True:
+                thread_id = pm_context.split(" ")[1]
+                num_winners = pm_context.split(" ")[2] 
+                draw_status = draw_giveaway_thread(thread_id, num_winners)
+                if draw_status == "min_winners":
+                    lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". There are too few entrants to draw your giveaway with that many winners. Please reduce the amount of winners or encourage more entrants!"
+                                                                 "\n \n"+ bot_strings.PM_SIGNOFF, pm_sender)
+                    lemmy.private_message.mark_as_read(pm_id, True)
+                    continue
+                else:
+                    winners = draw_status
+                    winner_names = ', '.join(winners)
+                    comment_body = f"Congratulations to the winners of this giveaway: {winner_names}!\n\nThe winners of this giveaway have been drawn randomly by ZippyBot."
+                    lemmy.comment.create(int(thread_id),comment_body)
+                    lemmy.post.lock(int(thread_id),True)
+                    lemmy.private_message.mark_as_read(pm_id, True)
+                    continue
+                
+                
+        
         #broadcast messages
         if pm_context.split(" ")[0] == "#broadcast":
             if user_admin == True:
@@ -1380,7 +1429,78 @@ def get_communities():
         if new_community_db(community_id, community_name) == "community":
             lemmy.private_message.create(bot_strings.GREETING + " " + mod_name + ". Congratulations on creating your community, [" + community_name + "](/c/"+community_name+"@" + settings.INSTANCE + "). \n " + bot_strings.MOD_ADVICE + bot_strings.PM_SIGNOFF, mod_id)    
 
+def add_giveaway_thread(thread_id):
+    try:
+        with connect_to_giveaway_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute('INSERT INTO giveaways (thread_id) VALUES (?)', (thread_id,))
+            conn.commit()
+            giveaway_id = cursor.lastrowid
+            return giveaway_id
+    except sqlite3.Error as error:
+        logging.error("Failed to execute sqlite statement", error)
+        return "Database error occurred"
+    except Exception as error:
+        logging.error("An error occurred", error)
+        return "An unknown error occurred"
+    
+def close_giveaway_thread(thread_id):
+    with connect_to_giveaway_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute('UPDATE giveaways SET status = ? WHERE thread_id = ?', ('closed', thread_id))
+        conn.commit()
+        
+def draw_giveaway_thread(thread_id, num_winners):
+    with connect_to_giveaway_db() as conn:
+        cursor = conn.cursor()
+        
+        cursor.execute('SELECT giveaway_id FROM giveaways WHERE thread_id = ?', (thread_id,))
+        result = cursor.fetchone()
+        
+        giveaway_id = result[0]
+        
+        cursor.execute('''
+                SELECT username FROM entrants 
+                WHERE giveaway_id = ? 
+                ORDER BY RANDOM() 
+            ''', (giveaway_id,))
+        entrants = cursor.fetchall()
 
+        if len(entrants) < int(num_winners):
+            return "min_winners"
+        usernames = [entrant[0] for entrant in entrants]
+        random.shuffle(usernames)
+        winners = random.sample(usernames, int(num_winners))
+        return winners
+            
+def check_giveaways(thread_id, comment_poster, comment_username, creator_local, comment_id):
+    #check if post is in db
+    with connect_to_giveaway_db() as conn:
+        action_query = '''SELECT giveaway_id, status FROM giveaways WHERE thread_id=?'''
+        thread_match = execute_sql_query(conn, action_query, (thread_id,))
+        
+        if thread_match:
+            if creator_local == False:
+                lemmy.comment.report(comment_id, "Not a valid giveaway entry.")
+                return
+            
+            giveaway_id = thread_match[0]
+            status = thread_match[1]
+            
+            if status == 'closed':
+                return
+            try:
+                cursor = conn.cursor()
+                cursor.execute('INSERT INTO entrants (giveaway_id, username) VALUES (?, ?)', (giveaway_id, comment_username))
+                conn.commit()
+                ticket_number = cursor.lastrowid
+                logging.info(f"User '{comment_poster}' has entered giveaway '{giveaway_id}' with ticket number '{ticket_number}'")
+                lemmy.private_message.create(bot_strings.GREETING + " " + comment_username + ". Your giveaway entry has been recorded! Your entry number is #" + str(ticket_number) + " - Good luck!", comment_poster)
+            except sqlite3.IntegrityError:
+                logging.info(f"User '{comment_poster}' has already entered giveaway '{giveaway_id}'")
+                lemmy.comment.report(comment_id, "Not a valid giveaway entry.")
+                
+    
 def new_community_db(community_id, community_name):
     try:
         with sqlite3.connect('resources/users.db') as conn:
@@ -1711,6 +1831,24 @@ def check_comments():
                             
         community_name = comment['community']['name']
         
+        #check if a giveaway post
+        if settings.GIVEAWAY_ENABLED == True:
+            
+            comment_username = comment['creator']['name']
+            creator_local = comment['creator']['local']
+            thread_id = comment['post']['id']
+            account_age = comment['creator']['published']
+
+            if creator_local == True:
+                account_age = datetime.strptime(account_age, '%Y-%m-%dT%H:%M:%S.%fZ')
+                #this is temporary and fixed, needs putting into the giveaways table and adding as a variable to the PM command, so it can be used as part of the wider mod toolset.
+                set_date = datetime(2024, 6, 5)
+                difference = set_date - account_age
+                
+                if difference > timedelta(days=3):
+                    check_giveaways(thread_id, comment_poster, comment_username, creator_local, comment_id)
+                
+            
         # Initialize match flags for each post
         match_found_text = False
         
