@@ -1315,14 +1315,14 @@ def check_pms():
                 
                 if ban_result == "notfound":
                     lemmy.private_message.create(
-                        bot_strings.GREETING + " " + pm_username + ". Your ban email has failed as the user ID couldn't be found. Make sure you're using the public ID (can be found in the URL when sending a PM). \n \n" + bot_strings.PM_SIGNOFF, pm_sender)
+                        bot_strings.GREETING + " " + pm_username + ". Your ban email has failed as the user ID couldn't be found. Make sure you're using the public ID (can be found in the URL when sending a PM). \n \n", pm_sender)
                 elif ban_result == "sent":
                     lemmy.private_message.create(
-                        bot_strings.GREETING + " " + pm_username + ". Your ban email was sent. \n \n" + bot_strings.PM_SIGNOFF, pm_sender)
+                        bot_strings.GREETING + " " + pm_username + ". Your ban email was sent. \n \n", pm_sender)
                 else:
                     # Handles any other errors from ban_email
                     lemmy.private_message.create(
-                        bot_strings.GREETING + " " + pm_username + ". There was an error sending the ban email. Please check Zippy's logs! \n \n" + bot_strings.PM_SIGNOFF, pm_sender)
+                        bot_strings.GREETING + " " + pm_username + ". There was an error sending the ban email. Please check Zippy's logs! \n \n", pm_sender)
             else:
                 lemmy.private_message.mark_as_read(pm_id, True)
 
@@ -1609,15 +1609,15 @@ def ban_email(person_id):
         
         body = f"""
             <p>Hello, this is an automated message to let you know your account has received a ban.</p>
-            <p>You can see the details of the ban and the reason for this ban at this link: 
-            <a href="https://lemmy.zip/modlog?page=1&actionType=All&userId={person_id}">
-            https://lemmy.zip/modlog?page=1&actionType=All&userId={person_id}</a>.</p>
+            <p>You can see the details and reason for this ban at this link: 
+            <a href="https://lemmy.zip/modlog?page=1&actionType=ModBan&userId={person_id}">
+            https://lemmy.zip/modlog?page=1&actionType=ModBan&userId={person_id}</a>.</p>
 
             <p>If you would like to dispute this ban, please send an email to <a href="mailto:hello@lemmy.zip">hello@lemmy.zip</a>.
-            During your ban, you won't be able to access your account. You can see our Terms of Service and Code of Conduct at 
+            During the period your account is banned for, you won't be able to access your account including logging in, posting, or voting. You can see our Terms of Service and Code of Conduct at 
             <a href="https://legal.lemmy.zip">legal.lemmy.zip</a>.</p>
 
-            <p><i>Please note, you can not reply directly to this email. Please send appeals to hello@lemmy.zip.</i></p>
+            <p><i>Please note, you cannot reply directly to this email. Please send appeals to hello@lemmy.zip.</i></p>
         """
         message.attach(MIMEText(body, 'html'))
         
@@ -2164,6 +2164,7 @@ def post_reports():
             local_post = re.search(settings.INSTANCE, str(ap_id))
             ## REPORTS ##
             # Against content on Local instance (either by a local user or remote user)
+            report_reply = None
             if local_post:
                 # reporter is a local user
                 if local_user:
@@ -2181,8 +2182,9 @@ def post_reports():
                     sqlite_insert_query = """INSERT INTO post_reports (report_id, reporter_id, reporter_name, report_reason, post_id) VALUES (?,?,?,?,?);"""
                     data_tuple = (report_id, creator_id, creator, report_reason, reported_content_id,)
                     execute_sql_query(conn, sqlite_insert_query, data_tuple)
-            
-                    lemmy.private_message.create("Hello " + creator + ",\n\n" + report_reply + "\n \n" + bot_strings.PM_SIGNOFF, creator_id)
+                    
+                    if report_reply:
+                        lemmy.private_message.create("Hello " + creator + ",\n\n" + report_reply + "\n \n" + bot_strings.PM_SIGNOFF, creator_id)
                     
                     for word in serious_words:
                         if word in report_reason and settings.MATRIX_FLAG:
