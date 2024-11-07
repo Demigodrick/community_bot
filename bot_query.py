@@ -45,8 +45,7 @@ logger.addHandler(stream_handler)
 ####################### N O T E S ###############################
 #  Add in reports for messages (doesnt exist in pythorhead yet)
 #  anti-spam measure for an ID?
-#  giveaways - db with table for giveaway id and thread number, and a table for entrants (ticket system - zippy to randomly pull a number)
-#  pm a user their ticket number. remove posts that aren't from a local user. remove posts from accounts that aren't old enough. Remove duplicate posts.
+
 
 def login():
     global lemmy
@@ -61,6 +60,7 @@ def create_table(conn, table_name, table_definition):
     curs.execute(f'''CREATE TABLE IF NOT EXISTS {table_name} {table_definition}''')
     conn.commit()
     logging.debug(f"Checked/created {table_name} table")
+    
 
 def check_dbs():
     try:
@@ -173,7 +173,7 @@ def execute_sql_query(connection, query, params=()):
         curs = connection.cursor()
         curs.execute(query, params)
         return curs.fetchone()
-
+    
 def add_vote_to_db(pm_username, vote_id, vote_response, pm_account_age):
     try:
         with connect_to_vote_db() as conn:
@@ -1304,7 +1304,31 @@ def check_pms():
                 else:
                     lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". Sorry, you can't use this command. \n \n" + bot_strings.PM_SIGNOFF, pm_sender)
                     lemmy.private_message.mark_as_read(pm_id, True)
-                    continue        
+                    continue      
+        
+        if pm_context.split(" ")[0] == "#ban":
+            if user_admin:  
+                person_id = pm_context.split(" ")[1]
+                lemmy.private_message.mark_as_read(pm_id, True)
+                
+                ban_result = ban_email(person_id)
+                
+                if ban_result == "notfound":
+                    lemmy.private_message.create(
+                        bot_strings.GREETING + " " + pm_username + ". Your ban email has failed as the user ID couldn't be found. Make sure you're using the public ID (can be found in the URL when sending a PM)."
+                    )
+                elif ban_result == "sent":
+                    lemmy.private_message.create(
+                        bot_strings.GREETING + " " + pm_username + ". Your ban email was sent."
+                    )
+                else:
+                    # Handles any other errors from ban_email
+                    lemmy.private_message.create(
+                        bot_strings.GREETING + " " + pm_username + ". There was an error sending the ban email. Please check Zippy's logs!"
+                    )
+            else:
+                lemmy.private_message.mark_as_read(pm_id, True)
+
 
         #keep this at the bottom
         else:
@@ -1479,11 +1503,7 @@ def check_giveaways(thread_id, comment_poster, comment_username, creator_local, 
         action_query = '''SELECT giveaway_id, status FROM giveaways WHERE thread_id=?'''
         thread_match = execute_sql_query(conn, action_query, (thread_id,))
         
-        if thread_match:
-            if creator_local == False:
-                lemmy.comment.report(comment_id, "Not a valid giveaway entry.")
-                return
-            
+        if thread_match:          
             giveaway_id = thread_match[0]
             status = thread_match[1]
             
@@ -1498,7 +1518,6 @@ def check_giveaways(thread_id, comment_poster, comment_username, creator_local, 
                 lemmy.private_message.create(bot_strings.GREETING + " " + comment_username + ". Your giveaway entry has been recorded! Your entry number is #" + str(ticket_number) + " - Good luck!", comment_poster)
             except sqlite3.IntegrityError:
                 logging.info(f"User '{comment_poster}' has already entered giveaway '{giveaway_id}'")
-                lemmy.comment.report(comment_id, "Not a valid giveaway entry.")
                 
     
 def new_community_db(community_id, community_name):
@@ -1572,6 +1591,47 @@ def welcome_email(email):
         logging.error("Error: Unable to send email.", str(e))
     finally:
         server.quit
+        
+def ban_email(person_id):
+    with sqlite3.connect('resources/users.db') as conn:
+        curs = conn.cursor()
+        
+        curs.execute('SELECT email FROM users WHERE public_user_id = ?', (person_id,))
+        id_match = curs.fetchone()
+        
+        #usr not in db
+        if not id_match:
+            return "notfound"
+
+        email = id_match[0] 
+        
+        message = MIMEMultipart()
+        message['From'] = settings.SENDER_EMAIL
+        message['To'] = email
+        message['Subject'] = "Lemmy.zip - Account Ban"
+        
+        body = (
+            f"Hello, this is an automated message to let you know your account has received a ban. "
+            f"You can see the details of the ban and the reason for this ban at this link: "
+            f"https://lemmy.zip/modlog?page=1&actionType=All&userId={person_id}.\n\n"
+            "If you would like to dispute this ban, please send an email to hello@lemmy.zip. "
+            "During your ban, you won't be able to access your account. You can see our Terms of Service "
+            "and Code of Conduct at [legal.lemmy.zip](https://legal.lemmy.zip)."
+        )
+        message.attach(MIMEText(body, 'plain'))
+        
+        #send
+        try:
+            with smtplib.SMTP(settings.SMTP_SERVER, settings.SMTP_PORT) as server:
+                server.starttls()
+                server.login(settings.SENDER_EMAIL, settings.SENDER_PASSWORD)
+                server.sendmail(settings.SENDER_EMAIL, email, message.as_string())
+                logging.info("Ban notification email sent successfully.")
+                return "sent"
+        except Exception as e:
+            logging.error("Error: Unable to send email. " + str(e))
+            return "error"
+    
 
 
 def steam_deals():
@@ -1877,7 +1937,7 @@ def check_comments():
         regex_pattern = re.compile(settings.SLUR_REGEX)
         match_found = False
 
-        if re.search(regex_pattern,comment_text):
+        if re.search(regex_pattern,comment_text.lower()):
             match_found = True
         
         if match_found:
@@ -1967,9 +2027,9 @@ def check_posts():
         regex_pattern = re.compile(settings.SLUR_REGEX)
         match_found = False
 
-        if re.search(regex_pattern,post_text):
+        if re.search(regex_pattern,post_text.lower()):
             match_found = True
-        if re.search(regex_pattern,post_title):
+        if re.search(regex_pattern,post_title.lower()):
             match_found = True
 
         if match_found:

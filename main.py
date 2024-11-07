@@ -3,10 +3,11 @@ from config import settings
 import logging
 import schedule
 import time
+
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 logging.info("Hello! Bot starting...")
-logging.info("Bot Version 0.5.7")
+logging.info("Bot Version 0.5.8")
 
 if __name__ == "__main__":
     
