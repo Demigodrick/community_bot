@@ -1315,17 +1315,14 @@ def check_pms():
                 
                 if ban_result == "notfound":
                     lemmy.private_message.create(
-                        bot_strings.GREETING + " " + pm_username + ". Your ban email has failed as the user ID couldn't be found. Make sure you're using the public ID (can be found in the URL when sending a PM)."
-                    )
+                        bot_strings.GREETING + " " + pm_username + ". Your ban email has failed as the user ID couldn't be found. Make sure you're using the public ID (can be found in the URL when sending a PM). \n \n" + bot_strings.PM_SIGNOFF, pm_sender)
                 elif ban_result == "sent":
                     lemmy.private_message.create(
-                        bot_strings.GREETING + " " + pm_username + ". Your ban email was sent."
-                    )
+                        bot_strings.GREETING + " " + pm_username + ". Your ban email was sent. \n \n" + bot_strings.PM_SIGNOFF, pm_sender)
                 else:
                     # Handles any other errors from ban_email
                     lemmy.private_message.create(
-                        bot_strings.GREETING + " " + pm_username + ". There was an error sending the ban email. Please check Zippy's logs!"
-                    )
+                        bot_strings.GREETING + " " + pm_username + ". There was an error sending the ban email. Please check Zippy's logs! \n \n" + bot_strings.PM_SIGNOFF, pm_sender)
             else:
                 lemmy.private_message.mark_as_read(pm_id, True)
 
@@ -1610,15 +1607,19 @@ def ban_email(person_id):
         message['To'] = email
         message['Subject'] = "Lemmy.zip - Account Ban"
         
-        body = (
-            f"Hello, this is an automated message to let you know your account has received a ban. "
-            f"You can see the details of the ban and the reason for this ban at this link: "
-            f"https://lemmy.zip/modlog?page=1&actionType=All&userId={person_id}.\n\n"
-            "If you would like to dispute this ban, please send an email to hello@lemmy.zip. "
-            "During your ban, you won't be able to access your account. You can see our Terms of Service "
-            "and Code of Conduct at [legal.lemmy.zip](https://legal.lemmy.zip)."
-        )
-        message.attach(MIMEText(body, 'plain'))
+        body = f"""
+            <p>Hello, this is an automated message to let you know your account has received a ban.</p>
+            <p>You can see the details of the ban and the reason for this ban at this link: 
+            <a href="https://lemmy.zip/modlog?page=1&actionType=All&userId={person_id}">
+            https://lemmy.zip/modlog?page=1&actionType=All&userId={person_id}</a>.</p>
+
+            <p>If you would like to dispute this ban, please send an email to <a href="mailto:hello@lemmy.zip">hello@lemmy.zip</a>.
+            During your ban, you won't be able to access your account. You can see our Terms of Service and Code of Conduct at 
+            <a href="https://legal.lemmy.zip">legal.lemmy.zip</a>.</p>
+
+            <p><i>Please note, you can not reply directly to this email. Please send appeals to hello@lemmy.zip.</i></p>
+        """
+        message.attach(MIMEText(body, 'html'))
         
         #send
         try:
