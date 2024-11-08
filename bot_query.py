@@ -3,6 +3,7 @@ from pythorhead.types import SortType, ListingType, FeatureType
 from config import settings
 from datetime import datetime, timedelta, timezone
 from dateutil.relativedelta import relativedelta
+from disposable_email_domains import blocklist
 import logging
 import sqlite3
 import time
@@ -1333,7 +1334,7 @@ def check_pms():
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
-def is_spam_email(email, spam_domains):
+def is_spam_email(email):
     
     # Count the number of digits in the email
     num_count = sum(char.isdigit() for char in email)
@@ -1345,16 +1346,9 @@ def is_spam_email(email, spam_domains):
     logging.info("Checking spam email with domain: " + domain)
 
     # Check if the email is spam based on the number of digits or if the domain is a known spam domain
-    return num_count > 2 or domain in spam_domains
+    return num_count > 2 or domain in blocklist
 
 def get_new_users():
-    spam_domains = set()  # Initialize an empty set
-
-    # Read in the list of spam domains from a file
-    with open('resources/disposable_email_blocklist.conf', 'r') as file:
-        for line in file:
-            spam_domains.add(line.strip())  # Add each domain to the set
-
     try:
         output = lemmy.admin.list_applications(unread_only="true")
         new_apps = output['registration_applications']
@@ -1374,14 +1368,8 @@ def get_new_users():
             lemmy.private_message.create(bot_strings.GREETING + " " + username + ". " + bot_strings.WELCOME_MESSAGE + bot_strings.PM_SIGNOFF, public_user_id)
             
             # Check if the email is from a known spam domain     
-            if is_spam_email(email, spam_domains):
+            if is_spam_email(email):
                 logging.info("User " + username + " tried to register with a potential spam email: " + email)
-                
-                #admin_ids = settings.ADMIN_ID.split(',')
-                #pm_message = "Hello, new user [" + username + "](https://" + settings.INSTANCE + "/u/" + username + ") with ID " + str(public_user_id) + " has signed up with an email address that may be a temporary or spam email address: (" + email + "). Please manually review before approving."
-               
-                #for admin_id in admin_ids:
-                #    lemmy.private_message.create(pm_message, int(admin_id))   
                 
                 matrix_body = "New user " + username + " (https://" + settings.INSTANCE + "/u/" + username + ") with ID " + str(public_user_id) + " has signed up with an email address that may be a temporary or spam email address: " + email
                 asyncio.run(send_matrix_message(matrix_body))
@@ -1608,7 +1596,7 @@ def ban_email(person_id):
         message['Subject'] = "Lemmy.zip - Account Ban"
         
         body = f"""
-            <p>Hello, this is an automated message to let you know your account has received a ban.</p>
+            <p>Hello, this is an automated message to let you know your Lemmy.zip account has received a ban.</p>
             <p>You can see the details and reason for this ban at this link: 
             <a href="https://lemmy.zip/modlog?page=1&actionType=ModBan&userId={person_id}">
             https://lemmy.zip/modlog?page=1&actionType=ModBan&userId={person_id}</a>.</p>
@@ -2217,6 +2205,7 @@ def comment_reports():
 
             ## REPORTS ##
             # Against content on Local instance (either by a local user or remote user)
+            report_reply = None
             if local_post:
                 # reporter is a local user
                 if local_user:
@@ -2237,7 +2226,8 @@ def comment_reports():
                     data_tuple = (report_id, reporter_id, creator, report_reason, reported_content_id,)
                     execute_sql_query(conn, sqlite_insert_query, data_tuple)
             
-                    lemmy.private_message.create("Hello " + creator + ",\n\n" + report_reply + "\n \n" + bot_strings.PM_SIGNOFF, reporter_id)
+                    if report_reply:
+                        lemmy.private_message.create("Hello " + creator + ",\n\n" + report_reply + "\n \n" + bot_strings.PM_SIGNOFF, reporter_id)
                     
                     for word in serious_words:
                         if word in report_reason and settings.MATRIX_FLAG:
