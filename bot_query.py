@@ -1308,22 +1308,22 @@ def check_pms():
                     continue      
         
         if pm_context.split(" ")[0] == "#ban":
-            if user_admin:  
+            if user_admin or pm_sender == 9532930:  
                 person_id = pm_context.split(" ")[1]
                 lemmy.private_message.mark_as_read(pm_id, True)
                 
                 ban_result = ban_email(person_id)
                 
                 if ban_result == "notfound":
-                    lemmy.private_message.create(
-                        bot_strings.GREETING + " " + pm_username + ". Your ban email has failed as the user ID couldn't be found. Make sure you're using the public ID (can be found in the URL when sending a PM). \n \n", pm_sender)
+                    matrix_body = f"The ban email has failed as the user ID couldn't be found ({person_id}). Make sure you're using the public ID (can be found in the URL when sending a PM)." 
+                    asyncio.run(send_matrix_message(matrix_body))
                 elif ban_result == "sent":
-                    lemmy.private_message.create(
-                        bot_strings.GREETING + " " + pm_username + ". Your ban email was sent. \n \n", pm_sender)
+                    matrix_body = f"The ban email for id {person_id} was sent."
+                    asyncio.run(send_matrix_message(matrix_body))
                 else:
                     # Handles any other errors from ban_email
-                    lemmy.private_message.create(
-                        bot_strings.GREETING + " " + pm_username + ". There was an error sending the ban email. Please check Zippy's logs! \n \n", pm_sender)
+                   matrix_body = f"There was an error sending the ban email for id {person_id}. Please check Zippy's logs!"
+                   asyncio.run(send_matrix_message(matrix_body))
             else:
                 lemmy.private_message.mark_as_read(pm_id, True)
 
@@ -1425,7 +1425,7 @@ def get_communities():
         
         find_mod = lemmy.community.get(community_id)
 
-        if find_mod.get('moderators') is None:
+        if find_mod is None or find_mod.get('moderators') is None:
             logging.info("Unable to get moderator of community, skipping.")
             continue
 
