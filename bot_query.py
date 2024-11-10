@@ -50,7 +50,7 @@ logger.addHandler(stream_handler)
 
 def login():
     global lemmy
-    lemmy = Lemmy("https://" + settings.INSTANCE, request_timeout=5)
+    lemmy = Lemmy("https://" + settings.INSTANCE, request_timeout=10)
     lemmy.log_in(settings.USERNAME, settings.PASSWORD)
     
 
@@ -432,8 +432,7 @@ def check_pms():
 
         private_messages = pm['private_messages']
     except:
-        logging.info("Error with connection, retrying...")
-        login()
+        logging.info("Error with connection, skipping checking private messages...")
         return
 
     for pm in private_messages:
@@ -1664,6 +1663,9 @@ def RSS_feed():
             feed_id, feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag = feed
             posts = fetch_latest_posts(feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag)
             
+            if posts == "URL access error":
+                continue
+            
             if not isinstance(posts, list):
                 logging.error(f"Failed to fetch posts for feed URL {feed_url}. Error: {posts}")
                 continue
@@ -1697,10 +1699,17 @@ def fetch_rss_feeds():
 def fetch_latest_posts(feed_url, url_contains_filter=None, url_excludes_filter=None, title_contains_filter=None, title_excludes_filter=None, community=None, tag=None):
     try:
         logging.debug(f"Fetching latest RSS posts from {feed_url}.")
-        response = requests.head(feed_url)
-        if response.status_code != 200:
+        response = requests.get(feed_url, stream=True, timeout=10)  # Stream=True to only fetch headers
+        if response.status_code == 404:
+            logging.error(f"URL not found (404): {feed_url}")
+            return "URL access error"
+        elif response.status_code == 403:
+            logging.error(f"Access forbidden (403) to URL: {feed_url}")
+            return "URL access error"
+        elif response.status_code != 200:
             logging.error(f"Failed to access URL {feed_url}. HTTP status code: {response.status_code}")
             return "URL access error"
+
 
         feed = feedparser.parse(feed_url)
                 

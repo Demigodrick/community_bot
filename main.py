@@ -7,7 +7,7 @@ import time
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 logging.info("Hello! Bot starting...")
-logging.info("Bot Version 0.5.12")
+logging.info("Bot Version 0.5.13")
 
 if __name__ == "__main__":
     
