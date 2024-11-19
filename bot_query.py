@@ -1300,6 +1300,7 @@ def check_pms():
                     rejection = parts[3].strip()
                     reject_user(user, rejection)
                     lemmy.private_message.mark_as_read(pm_id, True)
+                    continue
                 
                 else:
                     lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". Sorry, you can't use this command. \n \n" + bot_strings.PM_SIGNOFF, pm_sender)
