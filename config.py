@@ -24,6 +24,7 @@ class Settings(BaseSettings):
     ADMIN_ID: str
     RSS_ENABLED: bool
     GIVEAWAY_ENABLED: bool
+    DEBUG_LEVEL: str
 
 
     class Config:

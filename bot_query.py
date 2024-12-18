@@ -26,22 +26,26 @@ from email.mime.image import MIMEImage
 #logging stuff for healthcheck
 log_file_path = 'resources/zippy.log'
 
+log_level = getattr(logging, settings.DEBUG_LEVEL.upper(), logging.INFO)
+
 logger = logging.getLogger()
-logger.setLevel(logging.INFO)
+logger.setLevel(log_level)
 
 #write to healthcheck file
 file_handler = logging.FileHandler(log_file_path)
-file_handler.setLevel(logging.INFO)
+file_handler.setLevel(log_level)
 file_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 
 #write to stderr
 stream_handler = logging.StreamHandler()
-stream_handler.setLevel(logging.INFO)
+stream_handler.setLevel(log_level)
 stream_handler.setFormatter(logging.Formatter('%(asctime)s - %(levelname)s - %(message)s'))
 
 # Add the handlers to the logger
 logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
+
+logging.info(f"Log level set to {settings.DEBUG_LEVEL}")
 
 ####################### N O T E S ###############################
 #  Add in reports for messages (doesnt exist in pythorhead yet)
@@ -1665,6 +1669,7 @@ def RSS_feed():
             posts = fetch_latest_posts(feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag)
             
             if posts == "URL access error":
+                logging.error("Skipping RSS Feed due to URL access error.")
                 continue
             
             if not isinstance(posts, list):
