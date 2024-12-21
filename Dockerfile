@@ -18,7 +18,7 @@ RUN python3 -m pip install --upgrade pip
 
 # Copy the current directory contents into the container at /bot
 COPY requirements.txt .
-COPY bot_query.py .
+COPY bot_code.py .
 COPY healthcheck.py .
 COPY bot_strings.py .
 COPY config.py .

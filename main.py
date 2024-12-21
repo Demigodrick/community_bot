@@ -1,4 +1,4 @@
-from bot_query import check_pms, login, check_dbs, get_new_users, get_communities, steam_deals, check_comments, check_posts, check_reports, check_scheduled_posts, clear_notifications, RSS_feed
+from bot_code import check_pms, login, check_dbs, get_new_users, get_communities, steam_deals, check_comments, check_posts, check_reports, check_scheduled_posts, clear_notifications, RSS_feed
 from config import settings
 import logging
 import schedule
@@ -7,7 +7,7 @@ import time
 logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
 
 logging.info("Hello! Bot starting...")
-logging.info("Bot Version 0.5.15")
+logging.info("Bot Version 0.5.16")
 
 if __name__ == "__main__":
     
