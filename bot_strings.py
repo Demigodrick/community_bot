@@ -17,7 +17,7 @@ BOT_NAME = "ZippyBot"
 FEEDBACK_URL = "https://feedback.lemmy.zip"
 WELCOME_MESSAGE = ("\n\n # Welcome to Lemmy.zip! \n\n Please take a moment to familiarise yourself with [our Welcome Post](https://lemmy.zip/post/43). (Text that looks like this is a clickable link!) \n\n" 
                     "This post has all the information you'll need to get started on Lemmy, so please have a good read first! \n\n"
-                    "Please also take a look at our rules, they are in the sidebar of this instance, or you can view them [here](https://legal.lemmy.zip/docs/code_of_conduct/), or I can send these to you at any time - just send me a message with `#rules`. \n \n"
+                    "Please also take a look at our rules, they are in the sidebar of this instance, or you can view them [here](https://legal.lemmy.zip/posts/code_of_conduct/), or I can send these to you at any time - just send me a message with `#rules`. \n \n"
                     "If you're on a mobile device, you can [tap here](https://m.lemmy.zip) to go straight to our mobile site. \n \n"
                     "Lemmy.zip is 100% funded by user donations, so if you are enjoying your time on Lemmy.zip please [consider donating](https://opencollective.com/lemmyzip).\n \n"
                     "Want to change the theme of the site? You can go to your [profile settings](https://lemmy.zip/settings) (or click the dropdown by your username and select Settings) and scroll down to theme. You'll find a list of themes you can try out and see which one you like the most! \n \n"
@@ -32,8 +32,8 @@ MOD_ADVICE = ("Here are some tips for getting users to subscribe to your new com
                 "I hope this helps! \n \n")
 
 ## REPORTS ##
-REPORT_LOCAL = "Thanks for submitting a report. This is just a message to let you know the mods and admins have recieved this report. We'll check if the reported content breaks our [Code of Conduct](https://legal.lemmy.zip/docs/code_of_conduct/) and take action accordingly."
-REPORT_REMOTE = "Thanks for submitting a report. As this content is on Lemmy.zip, we'll check if it breaks our [Code of Conduct](https://legal.lemmy.zip/docs/code_of_conduct/) and take action accordinly. Your local admin(s) will also recieve a copy of this report."
+REPORT_LOCAL = "Thanks for submitting a report. This is just a message to let you know the mods and admins have recieved this report. We'll check if the reported content breaks our [Code of Conduct](https://legal.lemmy.zip/posts/code_of_conduct/) and take action accordingly."
+REPORT_REMOTE = "Thanks for submitting a report. As this content is on Lemmy.zip, we'll check if it breaks our [Code of Conduct](https://legal.lemmy.zip/posts/code_of_conduct/) and take action accordinly. Your local admin(s) will also recieve a copy of this report."
 
 ## PM REPLIES
 INS_RULES = ("These are the current rules for Lemmy.zip. \n \n"
@@ -67,3 +67,4 @@ BOT_ADMIN_COMMANDS = ("As an Admin, you also have access to the following comman
                         "- `#countpoll` - Get a total of the responses to a poll using a poll ID number, for example `#countpoll @1` \n"
                         "- `#takeover` - Add a user as a mod to an existing community. Command is `#takeover` followed by these identifiers in this order: `-community_name` then `-user_id` (use `-self` here if you want to apply this to yourself) \n\n")
 
+THREAD_LOCK_MESSAGE = ("This thread has been locked by the Lemmy.zip Admin Team.")

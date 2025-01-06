@@ -100,6 +100,9 @@ def check_dbs():
             
             #create or check community words table
             create_table(conn, 'community_words', '(community TEXT UNIQUE, words TEXT, action TEXT)')
+            
+            #create or check user warnings table
+            create_table(conn, 'warnings', '(user_id INT, warning_reason TEXT, admin TEXT)')
 
             #create or check rss tables
         with sqlite3.connect('resources/rss.db') as conn:
@@ -142,6 +145,16 @@ def check_dbs():
             create_table(conn, 'giveaways', '(giveaway_id INTEGER PRIMARY KEY, thread_id TEXT, status TEXT DEFAULT "active")')
             
             create_table(conn, 'entrants', '(ticket_number INTEGER PRIMARY KEY AUTOINCREMENT, giveaway_id INTEGER, username TEXT, entry_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (giveaway_id) REFERENCES giveaways (giveaway_id), UNIQUE (giveaway_id, username))')
+         
+         
+        # confirm to admin chat zippybot is up and running
+        if settings.STARTUP_WARNING and settings.MATRIX_FLAG:
+            current_time = datetime.now()
+            time_string = current_time.strftime("%H:%M:%S")
+            matrix_body = f"ZippyBot has been rebooted at {time_string}. If you weren't expecting this, Zippy has recovered from a crash."
+            asyncio.run(send_matrix_message(matrix_body))
+        
+        logging.debug("All tables checked.")
             
 
     except sqlite3.Error as e:
@@ -326,11 +339,11 @@ def delete_rss(feed_id, pm_sender):
         return "deleted"
     
     except sqlite3.IntegrityError as e:
-            print(f"Integrity error: {e}")
+            logging.debug(f"Integrity error: {e}")
     except sqlite3.Error as e:
-            print(f"Database error: {e}")
+            logging.debug(f"Database error: {e}")
     except Exception as e:
-            print(f"Unexpected error: {e}")
+            logging.debug(f"Unexpected error: {e}")
             
 def delete_welcome(com_name, pm_sender):
     try:
@@ -356,11 +369,11 @@ def delete_welcome(com_name, pm_sender):
         return "deleted"
     
     except sqlite3.IntegrityError as e:
-            print(f"Integrity error: {e}")
+            logging.debug(f"Integrity error: {e}")
     except sqlite3.Error as e:
-            print(f"Database error: {e}")
+            logging.debug(f"Database error: {e}")
     except Exception as e:
-            print(f"Unexpected error: {e}")
+            logging.debug(f"Unexpected error: {e}")
         
     
 def delete_autopost(pin_id, pm_sender, del_post):
@@ -1318,11 +1331,16 @@ def check_pms():
                 
                 ban_result = ban_email(person_id)
                 
+                banned_user = lemmy.user.get(person_id)
+                if banned_user:
+                    banned_username = banned_user['person_view']['person']['name']
+                
+                
                 if ban_result == "notfound":
                     matrix_body = f"The ban email has failed as the user ID couldn't be found ({person_id}). Make sure you're using the public ID (can be found in the URL when sending a PM)." 
                     asyncio.run(send_matrix_message(matrix_body))
                 elif ban_result == "sent":
-                    matrix_body = f"The ban email for id {person_id} was sent."
+                    matrix_body = f"The ban email for id {banned_username}({person_id}) was sent. Modlog here: https://lemmy.zip/modlog?page=1&actionType=ModBan&userId={person_id}."
                     asyncio.run(send_matrix_message(matrix_body))
                 else:
                     # Handles any other errors from ban_email
@@ -1330,7 +1348,119 @@ def check_pms():
                    asyncio.run(send_matrix_message(matrix_body))
             else:
                 lemmy.private_message.mark_as_read(pm_id, True)
+                
+        if pm_context.split(" ")[0] == '#warn':
+            if user_admin:
+                parts = pm_context.split("#")
+                if len(parts) > 1 and parts[1].strip() == "warn":
+                    if len(parts) < 4:
+                        lemmy.private_message.create(
+                            bot_strings.GREETING + " " + pm_username + 
+                            ". Your command is incomplete. Please provide a valid user ID and warning message.\n\n" +
+                            bot_strings.PM_SIGNOFF, 
+                            pm_sender
+                        )
+                        lemmy.private_message.mark_as_read(pm_id, True)
+                        continue
+                    
+                    person_id = int(parts[2].strip())
+                    warn_message = parts[3].strip()
+                    
+                    try:
+                        person_id = int(parts[2].strip()) 
+                        if person_id <= 0: 
+                            raise ValueError("User ID must be a positive integer.")
+                    except ValueError:
+                        lemmy.private_message.create(
+                            bot_strings.GREETING + " " + pm_username + 
+                            ". The provided user ID is invalid. Please provide a valid positive numeric user ID.\n\n" + 
+                            bot_strings.PM_SIGNOFF, 
+                            pm_sender
+                        )
+                        lemmy.private_message.mark_as_read(pm_id, True)
+                        continue
 
+                    
+                    try:
+                        warned_user = lemmy.user.get(person_id)
+                    except Exception as e:
+                        lemmy.private_message.create(
+                            f"{bot_strings.GREETING} {pm_username}. Failed to retrieve user information: {str(e)}\n\n{bot_strings.PM_SIGNOFF}",
+                            pm_sender
+                        )
+                        lemmy.private_message.mark_as_read(pm_id, True)
+                        continue
+                    
+                    if warned_user:
+                        warned_username = warned_user['person_view']['person']['name']
+                    else:
+                        lemmy.private_message.create(bot_strings.GREETING + " " + pm_username + ". Sorry, I could not find the required user by their user id to issue a warning. Please double check and try again. \n \n" + bot_strings.PM_SIGNOFF, pm_sender)
+                        lemmy.private_message.mark_as_read(pm_id, True)
+                        continue
+                    
+                    try:
+                        log_warning(person_id, warn_message, pm_username)
+                    except ValueError as e:
+                        lemmy.private_message.create(
+                            f"{bot_strings.GREETING} {pm_username}. Failed to log the warning: {str(e)}\n\n{bot_strings.PM_SIGNOFF}",
+                            pm_sender
+                        )
+                    
+                    warning_count = ordinal(get_warning_count(person_id))
+                    
+                    lemmy.private_message.create(f"Hello, {warned_username}. This is an official warning from the Lemmy.zip Admin Team. \n\n >{warn_message} \n\n *This is your {warning_count} warning.* \n\n --- \n\n This message cannot be replied to. If you wish to dispute this warning, please reach out to any member of the Admin team.", int(person_id))
+                    lemmy.private_message.mark_as_read(pm_id, True)
+                    matrix_body = f"A warning has been issued by {pm_username} for user {warned_username} (User ID: {person_id}): `{warn_message}`. This is the {warning_count} warning for this user. This has been sent successfully."
+                    asyncio.run(send_matrix_message(matrix_body))
+                    continue                    
+
+            
+            else:
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
+        
+        if pm_context.split(" ")[0] == '#lock':
+            if user_admin:
+                parts = pm_context.split("#")
+                if len(parts) > 1 and parts[1].strip() == "lock":
+                    thread_id = parts[2].strip()
+                    warn_message = parts[3].strip() if len(parts) > 3 else None
+                    
+                    output = lemmy.post.get(int(thread_id))
+                    
+                    if output['post_view']['post']['local']:
+                        lemmy.post.lock(int(thread_id),True)
+                        
+                        if warn_message:
+                            lemmy.comment.create(int(thread_id),warn_message)
+                            time.sleep(2) #in case of delay in posting?
+                            get_comment = lemmy.comment.list(post_id=int(thread_id))
+                            latest_comment = max(get_comment, key=lambda x: x['comment']['id'], default=None)['comment']['id']
+                            lemmy.comment.distinguish(latest_comment, True)    
+                        
+                        
+                        else:
+                            lemmy.comment.create(int(thread_id),bot_strings.THREAD_LOCK_MESSAGE)
+                            time.sleep(2) #in case of delay in posting?
+                            get_comment = lemmy.comment.list(post_id=int(thread_id))
+                            latest_comment = max(get_comment, key=lambda x: x['comment']['id'], default=None)['comment']['id']
+                            lemmy.comment.distinguish(latest_comment, True)
+                                                
+
+                        matrix_body = f"Thread locked by {pm_username}. Post: https://lemmy.zip/post/{thread_id} -> Comment: https://lemmy.zip/comment/{latest_comment}."
+                        asyncio.run(send_matrix_message(matrix_body))
+                        
+                        lemmy.private_message.mark_as_read(pm_id, True)
+                        continue
+            else:
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue          
+               
+       
+            
+            
+                    
+                
 
         #keep this at the bottom
         else:
@@ -1786,7 +1916,7 @@ def add_new_feed(feed_url, url_contains_filter, url_excludes_filter, title_conta
         feed_id = cursor.lastrowid  
         return feed_id  
     except sqlite3.IntegrityError as e:
-        print(f"An error occurred: {e}")
+        logging.debug(f"An error occurred: {e}")
         return None  
     finally:
         conn.close() 
@@ -1807,7 +1937,7 @@ def add_welcome_message(community, message):
         conn.commit()
         return "added"
     except sqlite3.IntegrityError as e:
-        print(f"An error occurred: {e}")
+        logging.debug(f"An error occurred: {e}")
         return None  
     finally:
         conn.close() 
@@ -2403,6 +2533,63 @@ def check_scheduled_posts():
     conn.close()
 
 
+def log_warning(person_id, warning_message, admin):
+    """
+    Logs a warning into the 'warnings' table.
+
+    Table Schema:
+    - user_id (INT): ID of the person being warned.
+    - warning_reason (TEXT): Reason for the warning.
+    - admin (TEXT): Admin who issued the warning.
+    """
+    if not isinstance(person_id, int):
+        raise ValueError("person_id must be an integer")
+    if not warning_message or not isinstance(warning_message, str):
+        raise ValueError("warning_message must be a non-empty string")
+    if not admin or not isinstance(admin, str):
+        raise ValueError("admin must be a non-empty string")
+
+    try:
+        with connect_to_mod_db() as conn:
+            sqlite_insert_query = """INSERT INTO warnings (user_id, warning_reason, admin) VALUES (?, ?, ?);"""
+            data_tuple = (person_id, warning_message, admin)
+            execute_sql_query(conn, sqlite_insert_query, data_tuple)
+    except Exception as e:
+        logging.info(f"Error logging warning: {e}")
+        raise
+
+        
+def get_warning_count(person_id):
+    """
+    Retrieves the count of warnings for a specific user ID from the 'warnings' table.
+
+    Args:
+        person_id (int): The ID of the person whose warnings need to be counted.
+
+    Returns:
+        int: The count of warnings for the specified user.
+
+    Raises:
+        ValueError: If the person_id is not an integer.
+        Exception: If there is a database-related error.
+    """
+    if not isinstance(person_id, int):
+        raise ValueError("person_id must be an integer")
+    
+    try:
+        with connect_to_mod_db() as conn:
+            sqlite_select_query = """SELECT COUNT(*) FROM warnings WHERE user_id = ?;"""
+            cursor = conn.cursor()
+            cursor.execute(sqlite_select_query, (person_id,))
+            result = cursor.fetchone()
+            if result:
+                return result[0]
+            return 0
+    except Exception as e:
+        logging.info(f"Error retrieving warning count: {e}")
+        raise        
+
+
 async def send_matrix_message(matrix_body):
     client = AsyncClient(settings.MATRIX_URL, settings.MATRIX_ACCOUNT)
 
@@ -2423,5 +2610,12 @@ async def send_matrix_message(matrix_body):
 
     # log out
     await client.close()
+    
+def ordinal(n):
+    if 10 <= n % 100 <= 20:
+        suffix = 'th'
+    else:
+        suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')
+    return str(n) + suffix
 
 

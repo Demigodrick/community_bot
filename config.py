@@ -25,6 +25,7 @@ class Settings(BaseSettings):
     RSS_ENABLED: bool
     GIVEAWAY_ENABLED: bool
     DEBUG_LEVEL: str
+    STARTUP_WARNING: bool
 
 
     class Config:
