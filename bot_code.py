@@ -1346,8 +1346,12 @@ def check_pms():
                     # Handles any other errors from ban_email
                    matrix_body = f"There was an error sending the ban email for id {person_id}. Please check Zippy's logs!"
                    asyncio.run(send_matrix_message(matrix_body))
+                   
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
             else:
                 lemmy.private_message.mark_as_read(pm_id, True)
+                continue
                 
         if pm_context.split(" ")[0] == '#warn':
             if user_admin:
@@ -1470,17 +1474,21 @@ def check_pms():
 
 def is_spam_email(email):
     
+    suspicious_keywords = {"seo", "info", "sales", "media"}
+    
     # Count the number of digits in the email
     num_count = sum(char.isdigit() for char in email)
 
     # Split the email address at '@' to extract the domain
-    domain = email.split('@')[1]
+    local_part, domain = email.split('@')
 
     # Logging the domain for debugging
     logging.info("Checking spam email with domain: " + domain)
+    
+    contains_suspicious_keyword = any(keyword in local_part.lower() for keyword in suspicious_keywords)
 
     # Check if the email is spam based on the number of digits or if the domain is a known spam domain
-    return num_count > 2 or domain in blocklist
+    return num_count > 2 or domain in blocklist or contains_suspicious_keyword
 
 def get_new_users():
     try:
