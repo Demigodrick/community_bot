@@ -16,3 +16,4 @@ pytz>=2023.3
 pythorhead>=0.26.0
 python-dateutil>=2.8.2
 disposable-email-domains>=0.0.108 
+bump2version>=1.01
