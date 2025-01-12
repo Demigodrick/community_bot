@@ -16,6 +16,7 @@ RUN python3 -m venv /opt/venv
 ENV PATH="/opt/venv/bin:$PATH"
 RUN python3 -m pip install --upgrade pip
 
+
 # Copy the current directory contents into the container at /bot
 COPY requirements.txt .
 COPY bot_code.py .
@@ -24,10 +25,12 @@ COPY bot_strings.py .
 COPY config.py .
 COPY main.py .
 COPY .env .
+COPY .bumpversion.toml .
 COPY resources/ ./resources/
 
 # Install any needed packages specified in requirements.txt
 RUN pip3 install --no-cache-dir -r requirements.txt
+RUN pip install --no-cache-dir --upgrade $(pip freeze | awk -F'==' '{print $1}')
 
 HEALTHCHECK --interval=1m --timeout=10s \
   CMD python ./healthcheck.py || exit 1

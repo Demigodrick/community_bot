@@ -1,13 +1,14 @@
-annotated-types==0.5.0
+annotated-types>=0.6.0
 certifi>=2024.07.04
 charset-normalizer==3.1.0
 idna==3.7
-pydantic==1.10.13
-pydantic_core==2.0.2
+pydantic==2.10.5
+pydantic_core==2.27.2
+pydantic_settings==2.7.1
 python-dotenv==1.0.0
 requests==2.32.0
 schedule==1.2.0
-typing_extensions==4.7.1
+typing_extensions>=4.12.2
 urllib3==2.2.2
 feedparser==6.0.11
 matrix-nio[e2e]==0.22.1
@@ -16,4 +17,5 @@ pytz>=2023.3
 pythorhead>=0.26.0
 python-dateutil>=2.8.2
 disposable-email-domains>=0.0.108 
-bump2version>=1.01
+bump-my-version>=0.29.0
+toml>=0.10.2

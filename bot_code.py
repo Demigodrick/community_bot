@@ -4,7 +4,7 @@ from config import settings
 from datetime import datetime, timedelta, timezone
 from dateutil.relativedelta import relativedelta
 from disposable_email_domains import blocklist
-from version import __version__
+import toml
 import logging
 import sqlite3
 import time
@@ -146,34 +146,7 @@ def check_dbs():
             create_table(conn, 'giveaways', '(giveaway_id INTEGER PRIMARY KEY, thread_id TEXT, status TEXT DEFAULT "active")')
             
             create_table(conn, 'entrants', '(ticket_number INTEGER PRIMARY KEY AUTOINCREMENT, giveaway_id INTEGER, username TEXT, entry_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (giveaway_id) REFERENCES giveaways (giveaway_id), UNIQUE (giveaway_id, username))')
-         
-         
-        # confirm to admin chat zippybot is up and running
-        LAST_VERSION_FILE = 'resources/last_ver'
-        last_version = None
-        current_time = datetime.now()
-        time_string = current_time.strftime("%H:%M:%S")
-        
-        if os.path.exists(LAST_VERSION_FILE):
-            with open(LAST_VERSION_FILE, "r") as f:
-                last_version = f.read().strip()
-    
-        if last_version != __version__:
-            logging.info(f"Version updated: {last_version} -> {__version__}")
-            with open(LAST_VERSION_FILE, "w") as f:
-                f.write(__version__)
-            logging.debug("All tables checked.")
-            
-            if settings.STARTUP_WARNING and settings.MATRIX_FLAG:
-                matrix_body = f"ZippyBot has been updated and has restarted at {time_string}. Version updated: {last_version} -> {__version__}"
-                asyncio.run(send_matrix_message(matrix_body))            
-                return
-    
-        if settings.STARTUP_WARNING and settings.MATRIX_FLAG:
-
-            matrix_body = f"ZippyBot has been rebooted at {time_string}. If you weren't expecting this, Zippy has recovered from a crash."
-            asyncio.run(send_matrix_message(matrix_body))
-        
+                       
         logging.debug("All tables checked.")
             
 
@@ -211,6 +184,38 @@ def execute_sql_query(connection, query, params=()):
         curs = connection.cursor()
         curs.execute(query, params)
         return curs.fetchone()
+    
+def check_version():
+ # confirm to admin chat zippybot is up and running
+        LAST_VERSION_FILE = 'resources/last_ver'
+        last_version = None
+        current_time = datetime.now()
+        time_string = current_time.strftime("%H:%M:%S")
+        
+        config = toml.load('.bumpversion.toml')
+        current_version = config["tool"]["bumpversion"]["current_version"]
+        
+        if os.path.exists(LAST_VERSION_FILE):
+            with open(LAST_VERSION_FILE, "r") as f:
+                last_version = f.read().strip()
+    
+        if last_version != current_version:
+            logging.info(f"Version updated: {last_version} -> {current_version}")
+            with open(LAST_VERSION_FILE, "w") as f:
+                f.write(current_version)
+            logging.debug("All tables checked.")
+            
+            if settings.STARTUP_WARNING and settings.MATRIX_FLAG:
+                matrix_body = f"ZippyBot has been updated and has restarted at {time_string}. Version updated: {last_version} -> {current_version}"
+                asyncio.run(send_matrix_message(matrix_body))            
+                return
+    
+        if settings.STARTUP_WARNING and settings.MATRIX_FLAG:
+
+            matrix_body = f"ZippyBot has been rebooted at {time_string}. If you weren't expecting this, Zippy has recovered from a crash."
+            asyncio.run(send_matrix_message(matrix_body))
+        
+        logging.info(f"Bot Version {current_version}")
     
 def add_vote_to_db(pm_username, vote_id, vote_response, pm_account_age):
     try:
