@@ -56,11 +56,11 @@ logging.info(f"Log level set to {settings.DEBUG_LEVEL}")
 
 
 def login():
-    global lemmy_instance
-    lemmy_instance = Lemmy("https://" + settings.INSTANCE, request_timeout=10)
-    lemmy_instance.log_in(settings.USERNAME, settings.PASSWORD)
+    global lemmy
+    lemmy = Lemmy("https://" + settings.INSTANCE, request_timeout=10)
+    lemmy.log_in(settings.USERNAME, settings.PASSWORD)
 
-    return lemmy_instance
+    return lemmy
 
 
 def create_table(conn, table_name, table_definition):
@@ -544,12 +544,12 @@ def check_pms():
             "Error with connection, skipping checking private messages...")
         return
 
-    for pm in private_messages:
-        pm_sender = pm['private_message']['creator_id']
-        pm_username = pm['creator']['name']
-        pm_context = pm['private_message']['content']
-        pm_id = pm['private_message']['id']
-        pm_account_age = pm['creator']['published']
+    for pm_data in private_messages:
+        pm_sender = pm_data['private_message']['creator_id']
+        pm_username = pm_data['creator']['name']
+        pm_context = pm_data['private_message']['content']
+        pm_id = pm_data['private_message']['id']
+        pm_account_age = pm_data['creator']['published']
 
         output = lemmy.user.get(pm_sender)
         user_local = output['person_view']['person']['local']
