@@ -10,8 +10,23 @@
 ## GENERAL ##
 GREETING = "Hey,"
 PM_SIGNOFF = "I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop."
-AUTOPOST_HELP = "If you need any further help getting this working, please contact [Demigodrick](/u/demigodrick@lemmy.zip)."
-SUB_ERROR = "Please message [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip) directly to let them know, and they'll sort it out for you."
+AUTOPOST_HELP = ("These are the commands you'll need to schedule an automatic post. Remember, you'll need to be a moderator in the community otherwise this won't work. \n \n"
+                "A typical command would look like `#autopost -c community_name -t post_title -b post_body -d day -h time -f frequency` \n"
+                "- `-c` - This defines the name of the community you are setting this up for. This is the original name of the community when you created it. \n"
+                "- `-t` - This defines the title of the post. You can use the modifiers listed below here. \n"
+                "- `-b` - This is the body of your post. This field is optional, so you don't need to include it if you don't want a body to your post. You can use the modifiers listed below here too. \n"
+                "- `-u` - This defines a URL you can add to your post. This field is optional, so you don't need to include it. \n"
+                "- `-d` - This defines a date you want the first post to occur in YYYYMMDD format, i.e. `20230612` which would be 12th June 2023, or the day of the week you want your thread to be posted on, i.e. `monday`. \n"
+                "- `-h` - This defines the time of the day you want this thread to be posted, i.e. `12:00`. All times are UTC! \n"
+                "- `-f` - This defines how often your thread will be posted. The options that currently exist are `once`, `weekly`, `fortnightly`, `4weekly`, or `monthly`. \n\n"
+                "There are some modifiers you can use as outlined above: \n"
+                "- `%d` - This will be replaced by the day of the month, i.e. `12` \n"
+                "- `%m` - This will be replaced by the name of the month, i.e. `June`. \n"
+                "- `%y` - This will be replaced by the current year, i.e. `2024` \n"
+                "- `%w` - This will be replaced by the day of the week, i.e. `Monday`.\n\n"
+                "For example, having `-t Weekly Thread %d %m` might be created as `Weekly Thread 12 June` depending on the day it is posted. \n\n"
+                "Finally, if you want to delete a scheduled autopost, use the command `#autopostdelete` with the ID number of the autopost, i.e. `#autopostdelete 1`. You can also delete the latest pinned thread if you include `y` at the end, i.e `#autopostdelete 1 y`. \n\n If you need any further help getting this working, please contact [Demigodrick](/u/demigodrick@lemmy.zip).")
+SUB_ERROR = "Sorry, something went wrong with your request :( \n\n Please message [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip) directly to let them know, and they'll sort it out for you."
 EMAIL_SUBJECT = "Thanks for signing up to Lemmy.zip!"
 BOT_NAME = "ZippyBot"
 FEEDBACK_URL = "https://feedback.lemmy.zip"
@@ -68,3 +83,24 @@ BOT_ADMIN_COMMANDS = ("As an Admin, you also have access to the following comman
                         "- `#takeover` - Add a user as a mod to an existing community. Command is `#takeover` followed by these identifiers in this order: `-community_name` then `-user_id` (use `-self` here if you want to apply this to yourself) \n\n")
 
 THREAD_LOCK_MESSAGE = ("This thread has been locked by the Lemmy.zip Admin Team.")
+RSS_HELP = ("These are the commands you'll need to add an RSS Feed to your community. Please note, you'll need to be a moderator of that community in order to use this tool. \n\n"
+                "This works by pulling the three latest posts in the RSS feed and checking if they've already been posted or not. If not, and they match the appropriate filters (if set) then ZippyBot will post the content. This does mean on the first use you will get 3 posts. \n\n"
+                "A typical command would look like `#rss -url rss_url -c community name` - but there are a few modifiers you can use. \n"
+                "- `url` - This is the URL of the rss feed, and is mandatory. \n"
+                "- `c` - This is the community name and is mandatory. \n"
+                "- `t` - This will tag your post titles with a preceding tag in square brackets, i.e. `-t \"RSS POST\"` will result in each post being tagged with `[RSS POST]` \n."
+                "- `title_inc` - Adding this will mean that only posts that INCLUDE the string you define will be posted, i.e. `-title_inc \"title must be included\"`. The speech marks are mandatory if you use this option, and you can have multiple filters by using a commma between them. \n"
+                "- `title_exc` - Adding this will EXCLUDE any posts that match this string, i.e. `-title_exc \"dont include this\"`. The speech marks are mandatory if you use this option. \n"
+                "- `url_inc` - Adding this will filter the post based on the link to the content in the RSS feed. You can use it in a way such as `-url_inc \"goodlink.com\"` to ensure that only posts where the link to the content is for `goodlink.com`. Speech marks are mandatory.\n"
+                "- `url_exc` - Adding this will exclude content based on the link to the content RSS feed, such as `-url_exc \"badlink.com\"`. Speech marks are mandatory. \n"
+                "- `new_only` - Adding this will mean that on the creation of this RSS feed, ZippyBot won't scan for existing posts and only start looking at posts after starting this feed. \n\n"
+                "Finally, if you want to delete an RSS feed from your community, use the command `#rssdelete` with the ID number of the RSS feed, i.e. `#rssdelete 1`. \n\n If you need any further help getting this working, please contact [Demigodrick](/u/demigodrick@lemmy.zip).")
+LOCAL_ONLY_WARNING = ("This bot is only for users of Lemmy.zip. Maybe try signing up there instead if you'd like to try me out!")
+CREDITS = ("This bot was built with help and support from various Lemmy.zip community members and contributers: \n\n"
+                "- [Demigodrick](https://me.lemmy.zip/@demigodrick) - Original Creator\n"
+                "- [Sami](/u/sami@lemmy.zip) - Support with original idea and implementation \n"
+                "- [TheDude](/u/TheDude@sh.itjust.works) - Refactoring of code and support with improving inital implementation \n"
+                "- [efwis](/u/efwis@lemmy.zip) - code contributions regarding new user database \n"
+                "- [Db0](/u/db0@lemmy.dbzer0.com) - For Pythorhead, which this bot is built with!")
+UNSUB_MESSAGE = ("Your unsubscribe request was successful. You can resubscribe at any time by sending me a message with `#subscribe`.")
+SUB_MESSAGE = ("Your subscribe request was successful. You can unsubscribe at any time by sending me a message with `#unsubscribe`")

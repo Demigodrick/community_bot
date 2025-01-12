@@ -14,7 +14,6 @@ from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
 import logging
-import sqlite3
 import requests
 import os
 import re
@@ -533,7 +532,6 @@ def clear_notifications():
         reply_id = notif['comment_reply']['id']
         lemmy.comment.mark_as_read(reply_id, True)
 
-
 def check_pms():
     try:
         pm = lemmy.private_message.list(True, 1)
@@ -568,207 +566,44 @@ def check_pms():
         # ANYONE ON LEMMY/FEDIVERSE TO BE ABLE TO ACCESS outside of your
         # instance when they message your bot.
         if user_local != settings.LOCAL:
-            lemmy.private_message.create(
-                bot_strings.GREETING +
-                " " +
-                pm_username +
-                f". This bot is only for users of {settings.INSTANCE}. "
-                "\n \n" +
-                bot_strings.PM_SIGNOFF,
-                pm_sender)
+            lemmy.private_message.create(f"{bot_strings.GREETING} {pm_username} \n\n {bot_strings.LOCAL_ONLY_WARNING}\n \n {bot_strings.PM_SIGNOFF}", pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
         if pm_context == "#help":
-            if user_admin:
-                lemmy.private_message.create(
-                    bot_strings.GREETING +
-                    " " +
-                    pm_username +
-                    ". " +
-                    bot_strings.BOT_COMMANDS +
-                    bot_strings.BOT_ADMIN_COMMANDS +
-                    bot_strings.PM_SIGNOFF,
-                    pm_sender)
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
-            else:
-                lemmy.private_message.create(
-                    bot_strings.GREETING +
-                    " " +
-                    pm_username +
-                    ". " +
-                    bot_strings.BOT_COMMANDS +
-                    bot_strings.PM_SIGNOFF,
-                    pm_sender)
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
-
+            pm_help(user_admin, pm_username, pm_id, pm_sender)
+            continue
+        
         if pm_context == "#autoposthelp":
-            lemmy.private_message.create(
-                bot_strings.GREETING + " " + pm_username + ". These are the commands you'll need to schedule an automatic post. Remember, you'll need to be a moderator in the community otherwise this won't work. \n \n"
-                "A typical command would look like `#autopost -c community_name -t post_title -b post_body -d day -h time -f frequency` \n"
-                "- `-c` - This defines the name of the community you are setting this up for. This is the original name of the community when you created it. \n"
-                "- `-t` - This defines the title of the post. You can use the modifiers listed below here. \n"
-                "- `-b` - This is the body of your post. This field is optional, so you don't need to include it if you don't want a body to your post. You can use the modifiers listed below here too. \n"
-                "- `-u` - This defines a URL you can add to your post. This field is optional, so you don't need to include it. \n"
-                "- `-d` - This defines a date you want the first post to occur in YYYYMMDD format, i.e. `20230612` which would be 12th June 2023, or the day of the week you want your thread to be posted on, i.e. `monday`. \n"
-                "- `-h` - This defines the time of the day you want this thread to be posted, i.e. `12:00`. All times are UTC! \n"
-                "- `-f` - This defines how often your thread will be posted. The options that currently exist are `once`, `weekly`, `fortnightly`, `4weekly`, or `monthly`. \n\n"
-                "There are some modifiers you can use as outlined above: \n"
-                "- `%d` - This will be replaced by the day of the month, i.e. `12` \n"
-                "- `%m` - This will be replaced by the name of the month, i.e. `June`. \n"
-                "- `%y` - This will be replaced by the current year, i.e. `2024` \n"
-                "- `%w` - This will be replaced by the day of the week, i.e. `Monday`.\n\n"
-                "For example, having `-t Weekly Thread %d %m` might be created as `Weekly Thread 12 June` depending on the day it is posted. \n\n"
-                "Finally, if you want to delete a scheduled autopost, use the command `#autopostdelete` with the ID number of the autopost, i.e. `#autopostdelete 1`. You can also delete the latest pinned thread if you include `y` at the end, i.e `#autopostdelete 1 y`."
-                "\n \n" + bot_strings.AUTOPOST_HELP, pm_sender)
+            lemmy.private_message.create(f"{bot_strings.GREETING} {pm_username}\n\n{bot_strings.AUTOPOST_HELP}", pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
         if pm_context == '#rsshelp':
-            lemmy.private_message.create(
-                bot_strings.GREETING + " " + pm_username + ". These are the commands you'll need to add an RSS Feed to your community. Please note, you'll need to be a moderator of that community in order to use this tool. \n\n"
-                "This works by pulling the three latest posts in the RSS feed and checking if they've already been posted or not. If not, and they match the appropriate filters (if set) then ZippyBot will post the content. This does mean on the first use you will get 3 posts. \n\n"
-                "A typical command would look like `#rss -url rss_url -c community name` - but there are a few modifiers you can use. \n"
-                "- `url` - This is the URL of the rss feed, and is mandatory. \n"
-                "- `c` - This is the community name and is mandatory. \n"
-                "- `t` - This will tag your post titles with a preceding tag in square brackets, i.e. `-t \"RSS POST\"` will result in each post being tagged with `[RSS POST]` \n."
-                "- `title_inc` - Adding this will mean that only posts that INCLUDE the string you define will be posted, i.e. `-title_inc \"title must be included\"`. The speech marks are mandatory if you use this option, and you can have multiple filters by using a commma between them. \n"
-                "- `title_exc` - Adding this will EXCLUDE any posts that match this string, i.e. `-title_exc \"dont include this\"`. The speech marks are mandatory if you use this option. \n"
-                "- `url_inc` - Adding this will filter the post based on the link to the content in the RSS feed. You can use it in a way such as `-url_inc \"goodlink.com\"` to ensure that only posts where the link to the content is for `goodlink.com`. Speech marks are mandatory.\n"
-                "- `url_exc` - Adding this will exclude content based on the link to the content RSS feed, such as `-url_exc \"badlink.com\"`. Speech marks are mandatory. \n"
-                "- `new_only` - Adding this will mean that on the creation of this RSS feed, ZippyBot won't scan for existing posts and only start looking at posts after starting this feed. \n\n"
-                "Finally, if you want to delete an RSS feed from your community, use the command `#rssdelete` with the ID number of the RSS feed, i.e. `#rssdelete 1`. \n"
-                "\n\n" + bot_strings.AUTOPOST_HELP, pm_sender)
+            lemmy.private_message.create(f"{bot_strings.GREETING} {pm_username}\n\n{bot_strings.RSS_HELP}", pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
         if pm_context == "#rules":
-            lemmy.private_message.create(
-                bot_strings.GREETING +
-                " " +
-                pm_username +
-                ". " +
-                bot_strings.INS_RULES +
-                bot_strings.PM_SIGNOFF,
-                pm_sender)
+            lemmy.private_message.create(f"{bot_strings.GREETING} {pm_username}\n\n{bot_strings.INS_RULES}\n\n{bot_strings.PM_SIGNOFF}", pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
         if pm_context == "#credits":
-            lemmy.private_message.create(
-                bot_strings.GREETING +
-                " " +
-                pm_username +
-                ". This bot was built with help and support from various Lemmy.zip community members and contributers: \n\n"
-                "- [Demigodrick](https://me.lemmy.zip/@demigodrick) - Original Creator\n"
-                "- Sami - Support with original idea and implementation \n"
-                "- TheDuude (sh.itjust.works) - Refactoring of code and support with improving inital implementation \n"
-                "- efwis - code contributions regarding new user database \n"
-                "- Db0 - For Pythorhead, which this bot is built with! \n\n" +
-                bot_strings.PM_SIGNOFF,
-                pm_sender)
+            lemmy.private_message.create(f"{bot_strings.GREETING} {pm_username}\n\n{bot_strings.CREDITS}\n\n{bot_strings.PM_SIGNOFF}", pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
         if pm_context == "#feedback":
-            lemmy.private_message.create(
-                bot_strings.GREETING +
-                " " +
-                pm_username +
-                ". The access code for the feedback survey is `" +
-                settings.SURVEY_CODE +
-                "`. \n"
-                "You can access the survey by [clicking here](" +
-                bot_strings.FEEDBACK_URL +
-                ") and selecting the available survey. \n\n" +
-                bot_strings.PM_SIGNOFF,
-                pm_sender)
+            lemmy.private_message.create(f"{bot_strings.GREETING} {pm_username}\n\nThe access code for the feedback survey is {settings.SURVEY_CODE}\n\n You can access the survey by [clicking here]({bot_strings.FEEDBACK_URL}) and selecting the available survey.\n\n{bot_strings.PM_SIGNOFF}", pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
-        if pm_context == "#unsubscribe":
-            status = "unsub"
-            if broadcast_status(pm_sender, status) == "successful":
-                lemmy.private_message.create(
-                    bot_strings.GREETING +
-                    " " +
-                    pm_username +
-                    ". \n \n"
-                    "Your unsubscribe request was successful. You can resubscribe at any time by sending me a message with `#subscribe`. \n\n" +
-                    bot_strings.PM_SIGNOFF,
-                    pm_sender)
-            else:
-                lemmy.private_message.create(
-                    bot_strings.GREETING + " " + pm_username + ". \n \n"
-                    "Sorry, something went wrong with your request :( \n\n" + bot_strings.SUB_ERROR)
-
-            lemmy.private_message.mark_as_read(pm_id, True)
+        if pm_context in ["#unsubscribe", "#subscribe"]:
+            status = "unsub" if pm_context == "#unsubscribe" else "sub"
+            pm_sub(pm_sender, status, pm_username, pm_id)
             continue
 
-        if pm_context == "#subscribe":
-            status = "sub"
-            if broadcast_status(pm_sender, status) == "successful":
-                lemmy.private_message.create(
-                    bot_strings.GREETING +
-                    " " +
-                    pm_username +
-                    ". \n \n"
-                    "Your subscribe request was successful. You can unsubscribe at any time by sending me a message with `#unsubscribe`. \n\n" +
-                    bot_strings.PM_SIGNOFF,
-                    pm_sender)
-            else:
-                lemmy.private_message.create(
-                    bot_strings.GREETING +
-                    " " +
-                    pm_username +
-                    ". \n \n"
-                    "Sorry, something went wrong with your request :( \n\n" +
-                    bot_strings.SUB_ERROR,
-                    pm_sender)
-
-            lemmy.private_message.mark_as_read(pm_id, True)
-            continue
-
-        # if pm_context.split(" @")[0] == "#create":
-        #    community_name = pm_context.split("@")[1]
-
-            # check user score
-        #    if user_score < int(settings.SCORE):
-        #        lemmy.private_message.create("Hey, " + pm_username + ". Your comment score is too low to create a "
-        #                                                                "community. Please interact with other "
-        #                                                                "communities first. You can check your score at "
-        #                                                                "any time by sending me a message with `#score` "
-        #                                                                "and I will let you know!"  "\n \n I am a Bot. "
-        #                                                                "If you have any queries, please contact ["
-        #                                                                "Demigodrick](/u/demigodrick@lemmy.zip) or ["
-        #                                                                "Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
-        #        lemmy.private_message.mark_as_read(pm_id, True)
-        #        continue
-        #
-            # check if it already exists
-        #    check_community = lemmy.discover_community(community_name)
-        #
-        #    if check_community is not None:
-        #        lemmy.private_message.create("Hey, " + pm_username + ". Sorry, it looks like the community you are "
-        #                                                                "trying to create already exists. \n \n I am a "
-        #                                                                "Bot. If you have any queries, please contact ["
-        #                                                                "Demigodrick](/u/demigodrick@lemmy.zip) or ["
-        #                                                                "Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
-        #        lemmy.private_message.mark_as_read(pm_id, True)
-        #        continue
-
-            # create community - add user and remove bot as mod
-        #    lemmy.community.create(community_name, community_name)
-        #    community_id = lemmy.discover_community(community_name)
-        #    lemmy.community.add_mod_to_community(True, community_id, pm_sender)
-        #    lemmy.community.add_mod_to_community(False, community_id, settings.BOT_ID)
-
-        #    lemmy.private_message.create("Hey, " + pm_username + ". Your new community, [" + community_name + "](/c/" + community_name + "), has been created. You can now set this community up to your liking. "
-        #                                                         "\n \n I am a Bot. If you have any queries, please contact [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip). Beep Boop.", pm_sender)
-        #    lemmy.private_message.mark_as_read(pm_id, True)
-        #    continue
 
         if pm_context.split(" -")[0] == "#takeover":
             if user_admin:
@@ -948,11 +783,8 @@ def check_pms():
             if user_admin:
                 thread_id = pm_context.split(" ")[1]
                 add_giveaway_thread(thread_id)
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
-            else:
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
+            lemmy.private_message.mark_as_read(pm_id, True)
+            continue
 
         if pm_context.split(" ")[0] == "#closegiveaway":
             if user_admin:
@@ -980,14 +812,14 @@ def check_pms():
                         pm_sender)
                     lemmy.private_message.mark_as_read(pm_id, True)
                     continue
-                else:
-                    winners = draw_status
-                    winner_names = ', '.join(winners)
-                    comment_body = f"Congratulations to the winners of this giveaway: {winner_names}!\n\nThe winners of this giveaway have been drawn randomly by ZippyBot."
-                    lemmy.comment.create(int(thread_id), comment_body)
-                    lemmy.post.lock(int(thread_id), True)
-                    lemmy.private_message.mark_as_read(pm_id, True)
-                    continue
+
+                winners = draw_status
+                winner_names = ', '.join(winners)
+                comment_body = f"Congratulations to the winners of this giveaway: {winner_names}!\n\nThe winners of this giveaway have been drawn randomly by ZippyBot."
+                lemmy.comment.create(int(thread_id), comment_body)
+                lemmy.post.lock(int(thread_id), True)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
 
         # broadcast messages
         if pm_context.split(" ")[0] == "#broadcast":
@@ -1407,7 +1239,7 @@ def check_pms():
                             bot_strings.GREETING +
                             " " +
                             pm_username +
-                            f". An error occurred while adding the RSS feed. Please try again.",
+                            ". An error occurred while adding the RSS feed. Please try again.",
                             pm_sender)
                     else:
                         feed_id = add_new_feed_result
@@ -1732,10 +1564,7 @@ def check_pms():
 
         if pm_context.split(" ")[0] == "#autopostdelete":
             pin_id = pm_context.split(" ")[1]
-            if len(split_context) >= 3 and split_context[2] != "":
-                del_post = True
-            else:
-                del_post = False
+            del_post = len(split_context) >= 3 and split_context[2] != ""
 
             delete_conf = delete_autopost(pin_id, pm_sender, del_post)
 
@@ -1853,9 +1682,10 @@ def check_pms():
 
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
-            else:
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
+            
+            lemmy.private_message.mark_as_read(pm_id, True)
+            continue
+
 
         if pm_context.split(" ")[0] == '#warn':
             if user_admin:
@@ -1990,6 +1820,40 @@ def check_pms():
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
+def pm_help(user_admin, pm_username, pm_id, pm_sender):
+    greeting = f"{bot_strings.GREETING} {pm_username}. "
+    commands = bot_strings.BOT_COMMANDS  # Common part for all users
+    
+    # Add admin commands if user is an admin
+    if user_admin:
+        commands += bot_strings.BOT_ADMIN_COMMANDS
+    
+    # Add the signoff at the end
+    commands += bot_strings.PM_SIGNOFF
+    
+    # Send the message
+    lemmy.private_message.create(greeting + commands, pm_sender)
+    
+    # Mark the message as read
+    lemmy.private_message.mark_as_read(pm_id, True)
+    
+def pm_sub(pm_sender, status, pm_username, pm_id):
+    if broadcast_status(pm_sender, status) == "successful":
+        message = bot_strings.UNSUB_MESSAGE if status == "unsub" else bot_strings.SUB_MESSAGE
+        lemmy.private_message.create(f"{bot_strings.GREETING} {pm_username}\n\n{message}\n\n{bot_strings.PM_SIGNOFF}", pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+       
+    lemmy.private_message.create(f"{bot_strings.GREETING} {pm_username}\n\n{bot_strings.SUB_ERROR}", pm_sender)
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+
+
+
+
+
+    
+    
 
 def is_spam_email(email):
 
@@ -2970,14 +2834,15 @@ def broadcast_status(pm_sender, status):
             cursor.execute(query, (pm_sender,))
             conn.commit()
             logging.debug("User unsubscribed successfully")
-            return "successful"
+
 
         if status == "sub":
             query = "UPDATE users SET subscribed = 1 WHERE public_user_id = ?"
             cursor.execute(query, (pm_sender,))
             conn.commit()
             logging.debug("User subscribed successfully")
-            return "successful"
+            
+    return "successful"
 
 
 def post_reports():
@@ -3060,7 +2925,6 @@ def comment_reports():
         for report in recent_reports:
             creator = report['creator']['name']
             reporter_id = report['creator']['id']
-            creator_url = report['comment_creator']['actor_id']
             local_user = report['creator']['local']
             report_id = report['comment_report']['id']
             report_reason = report['comment_report']['reason']
