@@ -1,30 +1,31 @@
-from pythorhead import Lemmy
-from pythorhead.types import SortType, ListingType, FeatureType
-from config import settings
-from datetime import datetime, timedelta, timezone
-from dateutil.relativedelta import relativedelta
-from disposable_email_domains import blocklist
-import toml
-import logging
-import sqlite3
 import time
-import requests
-import os
-import feedparser
-import re
-import asyncio
-from nio import AsyncClient, MatrixRoom, RoomMessageText
-import pytz
-import bot_strings
 import random
-
+import pytz
+from datetime import datetime, timedelta, timezone
+import sqlite3
+from disposable_email_domains import blocklist
+import feedparser
+from dateutil.relativedelta import relativedelta
+from nio import AsyncClient, MatrixRoom
+import toml
+from config import settings
 import smtplib
 from email.mime.text import MIMEText
 from email.mime.multipart import MIMEMultipart
 from email.mime.image import MIMEImage
+import logging
+import sqlite3
+import requests
+import os
+import re
+import asyncio
+import bot_strings
+from pythorhead import Lemmy
+from pythorhead.types import SortType, ListingType, FeatureType
+
 
 # logging stuff for healthcheck
-log_file_path = 'resources/zippy.log'
+LOG_FILE_PATH = 'resources/zippy.log'
 
 log_level = getattr(logging, settings.DEBUG_LEVEL.upper(), logging.INFO)
 
@@ -32,7 +33,7 @@ logger = logging.getLogger()
 logger.setLevel(log_level)
 
 # write to healthcheck file
-file_handler = logging.FileHandler(log_file_path)
+file_handler = logging.FileHandler(LOG_FILE_PATH)
 file_handler.setLevel(log_level)
 file_handler.setFormatter(logging.Formatter(
     '%(asctime)s - %(levelname)s - %(message)s'))
@@ -55,11 +56,11 @@ logging.info(f"Log level set to {settings.DEBUG_LEVEL}")
 
 
 def login():
-    global lemmy
-    lemmy = Lemmy("https://" + settings.INSTANCE, request_timeout=10)
-    lemmy.log_in(settings.USERNAME, settings.PASSWORD)
+    global lemmy_instance
+    lemmy_instance = Lemmy("https://" + settings.INSTANCE, request_timeout=10)
+    lemmy_instance.log_in(settings.USERNAME, settings.PASSWORD)
 
-    return lemmy
+    return lemmy_instance
 
 
 def create_table(conn, table_name, table_definition):
@@ -71,6 +72,11 @@ def create_table(conn, table_name, table_definition):
 
 
 def check_dbs():
+    """
+    Check the status of the configured databases and ensure they are accessible.
+
+    This function is used to validate database connections and configurations.
+    """
     try:
         with sqlite3.connect('resources/vote.db') as conn:
             # Create or check votes table
@@ -240,7 +246,7 @@ def execute_sql_query(connection, query, params=()):
 
 def check_version():
  # confirm to admin chat zippybot is up and running
-    LAST_VERSION_FILE = 'resources/last_ver'
+    last_version_file = 'resources/last_ver'
     last_version = None
     current_time = datetime.now()
     time_string = current_time.strftime("%H:%M:%S")
@@ -248,13 +254,13 @@ def check_version():
     config = toml.load('.bumpversion.toml')
     current_version = config["tool"]["bumpversion"]["current_version"]
 
-    if os.path.exists(LAST_VERSION_FILE):
-        with open(LAST_VERSION_FILE, "r") as f:
+    if os.path.exists(last_version_file):
+        with open(last_version_file, "r") as f:
             last_version = f.read().strip()
 
     if last_version != current_version:
         logging.info(f"Version updated: {last_version} -> {current_version}")
-        with open(LAST_VERSION_FILE, "w") as f:
+        with open(last_version_file, "w") as f:
             f.write(current_version)
         logging.debug("All tables checked.")
 
@@ -323,8 +329,7 @@ def create_poll(poll_name, pm_username):
             poll_id = execute_sql_query(conn, poll_id_query)[0]
 
             logging.debug(
-                "Added poll to database with ID number " +
-                str(poll_id))
+                f"Added poll to database with ID number {poll_id}")
             return poll_id
     except Exception as e:
         logging.error(f"An error occurred: {e}")
@@ -479,15 +484,7 @@ def delete_autopost(pin_id, pm_sender, del_post):
 
             # check it has not already been deleted
             if community_name is None:
-                lemmy.private_message.create(
-                    bot_strings.GREETING +
-                    " " +
-                    pm_username +
-                    ". A scheduled post with this ID does not exist."
-                    "\n \n" +
-                    bot_strings.PM_SIGNOFF,
-                    pm_sender)
-                return "not deleted"
+                return "no id"
 
             # check if delete request came from original author
             if mod_id == pm_sender:
@@ -516,16 +513,7 @@ def delete_autopost(pin_id, pm_sender, del_post):
                     return "deleted"
 
             if not is_moderator:
-                # If pm_sender is not a moderator, send a private message
-                lemmy.private_message.create(
-                    bot_strings.GREETING +
-                    " " +
-                    pm_username +
-                    ". As you are not the moderator of this community, you are not able to delete a scheduled post for it."
-                    "\n \n" +
-                    bot_strings.PM_SIGNOFF,
-                    pm_sender)
-                return "not deleted"
+                return "not mod"
 
     except Exception as e:
         logging.error(f"An error occurred: {e}")
@@ -1277,7 +1265,7 @@ def check_pms():
         # mod/admin action - create rss feed in community
         if pm_context.split(" ")[0] == "#rss":
             try:
-                pattern = r'-(url|url_exc|url_inc|title_inc|title_exc|c|t|new_only|ignore|b)\s*(?:(?:"(.*?)")|(?:“(.*?)”)|([^\s]+))?(?=\s+-|$)'
+                pattern = r'-(url|url_exc|url_inc|title_inc|title_exc|c|t|new_only|ignore)\s*(?:(?:"(.*?)")|(?:“(.*?)”)|([^\s]+))?(?=\s+-|$)'
 
                 filters = {
                     'feed_url': None,
@@ -1291,7 +1279,6 @@ def check_pms():
 
                 ignore_bozo_check = False
                 new_only = False
-                body = False
 
                 matches = re.findall(pattern, pm_context)
 
@@ -1317,8 +1304,6 @@ def check_pms():
                         new_only = True
                     elif flag == 'ignore':
                         ignore_bozo_check = True
-                    elif flag == 'b':
-                        body = True
 
                 if not filters['feed_url']:
                     lemmy.private_message.create(
@@ -1772,6 +1757,30 @@ def check_pms():
                 lemmy.private_message.mark_as_read(pm_id, True)
                 continue
 
+            if delete_conf == "no id":
+                lemmy.private_message.create(
+                    bot_strings.GREETING +
+                    " " +
+                    pm_username +
+                    ". A scheduled post with this ID does not exist."
+                    "\n \n" +
+                    bot_strings.PM_SIGNOFF,
+                    pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
+
+            if delete_conf == "not mod":
+                lemmy.private_message.create(
+                    bot_strings.GREETING +
+                    " " +
+                    pm_username +
+                    ". As you are not the moderator of this community, you are not able to delete a scheduled post for it."
+                    "\n \n" +
+                    bot_strings.PM_SIGNOFF,
+                    pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                continue
+
         if pm_context == "#purgevotes":
             if user_admin:
                 if os.path.exists('resources/vote.db'):
@@ -2187,8 +2196,7 @@ def check_giveaways(
         thread_id,
         comment_poster,
         comment_username,
-        creator_local,
-        comment_id):
+        creator_local):
     # check if post is in db
     with connect_to_giveaway_db() as conn:
         action_query = '''SELECT giveaway_id, status FROM giveaways WHERE thread_id=?'''
@@ -2458,10 +2466,12 @@ def fetch_latest_posts(
         if response.status_code == 404:
             logging.error(f"URL not found (404): {feed_url}")
             return "URL access error"
-        elif response.status_code == 403:
+
+        if response.status_code == 403:
             logging.error(f"Access forbidden (403) to URL: {feed_url}")
             return "URL access error"
-        elif response.status_code != 200:
+
+        if response.status_code != 200:
             logging.error(
                 f"Failed to access URL {feed_url}. HTTP status code: {response.status_code}")
             return "URL access error"
@@ -2514,10 +2524,10 @@ def insert_new_post(feed_id, post):
                     "INSERT INTO posts (feed_id, post_url, title, description, posted, post_date) VALUES (?, ?, ?, ?, ?, ?)",
                     (feed_id,
                      post['post_url'],
-                        post['title'],
-                        post['description'],
-                        0,
-                        post['post_date']))
+                     post['title'],
+                     post['description'],
+                     0,
+                     post['post_date']))
                 conn.commit()
                 return True
         return False
@@ -2924,7 +2934,6 @@ def broadcast_message(message):
 
 def reject_user(user, rejection):
     with connect_to_users_db() as conn:
-        cursor = conn.cursor()
         query = "SELECT email from users WHERE local_user_id = ?"
         result = execute_sql_query(conn, query, (user,))
 

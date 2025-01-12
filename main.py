@@ -1,8 +1,8 @@
-from bot_code import check_pms, login, check_dbs, get_new_users, get_communities, steam_deals, check_comments, check_posts, check_reports, check_scheduled_posts, clear_notifications, RSS_feed, check_version
 from config import settings
 import logging
-import schedule
 import time
+import schedule
+from bot_code import check_pms, login, check_dbs, get_new_users, get_communities, steam_deals, check_comments, check_posts, check_reports, check_scheduled_posts, clear_notifications, RSS_feed, check_version
 
 logging.basicConfig(
     level=logging.DEBUG,
