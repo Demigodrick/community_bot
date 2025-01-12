@@ -4,29 +4,31 @@ import logging
 import schedule
 import time
 
-logging.basicConfig(level=logging.DEBUG, format='%(asctime)s - %(levelname)s - %(message)s')
+logging.basicConfig(
+    level=logging.DEBUG,
+    format='%(asctime)s - %(levelname)s - %(message)s')
 
 logging.info("Hello! Bot starting...")
 
 if __name__ == "__main__":
-    
-    #run once
+
+    # run once
+    check_version()
     login()
     check_dbs()
-    check_version()
 
-    #seconds
+    # seconds
     schedule.every(5).seconds.do(check_pms)
     schedule.every(10).seconds.do(get_new_users)
     schedule.every(30).seconds.do(get_communities)
     schedule.every(30).seconds.do(check_reports)
-    schedule.every(30).seconds.do(check_scheduled_posts)  
+    schedule.every(30).seconds.do(check_scheduled_posts)
 
-    #minutes
+    # minutes
     schedule.every(30).minutes.do(clear_notifications)
-    schedule.every(10).minutes.do(steam_deals)     
+    schedule.every(10).minutes.do(steam_deals)
 
-    #optional 
+    # optional
     if settings.SLUR_ENABLED:
         schedule.every(10).seconds.do(check_comments)
         schedule.every(10).seconds.do(check_posts)

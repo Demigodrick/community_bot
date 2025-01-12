@@ -1,6 +1,7 @@
 import os
 from pydantic_settings import BaseSettings
 
+
 class Settings(BaseSettings):
     USERNAME: str
     PASSWORD: str
@@ -27,12 +28,11 @@ class Settings(BaseSettings):
     DEBUG_LEVEL: str
     STARTUP_WARNING: bool
 
-
     class Config:
         env_file = ".env"
+
 
 os.environ.pop("USERNAME", None)
 os.environ.pop("PASSWORD", None)
 
 settings = Settings()
-
