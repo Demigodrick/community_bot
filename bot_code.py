@@ -606,100 +606,12 @@ def check_pms():
 
 
         if pm_context.split(" -")[0] == "#takeover":
-            if user_admin:
-                community_name = pm_context.split("-")[1].strip()
-                user_id = pm_context.split("-")[2].strip()
-
-                if user_id == "self":
-                    user_id = pm_id
-
-                community_id = lemmy.discover_community(community_name)
-
-                logging.info(
-                    "Request for community " +
-                    community_name +
-                    " to be transferred to " +
-                    user_id)
-
-                if community_id is None:
-                    lemmy.private_message.create(
-                        bot_strings.GREETING +
-                        " " +
-                        pm_username +
-                        ". Sorry, I can't find the community you've requested.",
-                        pm_sender)
-                    lemmy.private_message.mark_as_read(pm_id, True)
-                    continue
-
-                lemmy.community.add_mod_to_community(
-                    True, community_id=int(community_id), person_id=int(user_id))
-                lemmy.private_message.create(
-                    "Confirmation: " +
-                    community_name +
-                    "(" +
-                    str(community_id) +
-                    ") has been taken over by user id " +
-                    str(user_id),
-                    pm_sender)
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
+            pm_takeover(user_admin, pm_context, pm_id, pm_username)
+            continue
 
         if pm_context.split(" ")[0] == "#vote":
-            vote_id = pm_context.split(" ")[1]
-            vote_response = pm_context.split(" ")[2]
-
-            db_response = add_vote_to_db(
-                pm_username, vote_id, vote_response, pm_account_age)
-
-            if db_response == "duplicate":
-                lemmy.private_message.create(
-                    bot_strings.GREETING +
-                    " " +
-                    pm_username +
-                    ". Oops! It looks like you've already voted on this poll. Votes can only be counted once. "
-                    "\n \n" +
-                    bot_strings.PM_SIGNOFF,
-                    pm_sender)
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
-
-            if db_response == "notvalid":
-                lemmy.private_message.create(
-                    bot_strings.GREETING +
-                    " " +
-                    pm_username +
-                    ". Oops! It doesn't look like the poll you've tried to vote on exists. Please double check the vote ID and try again."
-                    "\n \n" +
-                    bot_strings.PM_SIGNOFF,
-                    pm_sender)
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
-
-            if db_response == "closed":
-                lemmy.private_message.create(
-                    bot_strings.GREETING +
-                    " " +
-                    pm_username +
-                    ". Sorry, it appears the poll you're trying to vote on is now closed. Please double check the vote ID and try again."
-                    "\n \n" +
-                    bot_strings.PM_SIGNOFF,
-                    pm_sender)
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
-
-            else:
-                lemmy.private_message.create(
-                    bot_strings.GREETING +
-                    " " +
-                    pm_username +
-                    ". Your vote has been counted on the '" +
-                    db_response +
-                    "' poll. Thank you for voting! "
-                    "\n \n" +
-                    bot_strings.PM_SIGNOFF,
-                    pm_sender)
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
+            pm_vote(pm_context, pm_username, pm_account_age, pm_id, pm_sender)
+            continue
 
         if pm_context.split(" @")[0] == "#poll":
             if user_admin:
@@ -1848,11 +1760,55 @@ def pm_sub(pm_sender, status, pm_username, pm_id):
     lemmy.private_message.mark_as_read(pm_id, True)
     return
 
+def pm_takeover(user_admin, pm_context, pm_id, pm_username, pm_sender):
+    if user_admin:
+        community_name = pm_context.split("-")[1].strip()
+        user_id = pm_context.split("-")[2].strip()
+
+        if user_id == "self":
+            user_id = pm_id
+
+        community_id = lemmy.discover_community(community_name)
+
+        logging.info(f"Request for community {community_name} to be transferred to {user_id}")
+
+        if community_id is None:
+            lemmy.private_message.create(f"{bot_strings.GREETING} {pm_username}. Sorry, I can't find the community you've requested.", pm_sender)
+            lemmy.private_message.mark_as_read(pm_id, True)
+            return
+
+        lemmy.community.add_mod_to_community(
+            True, community_id=int(community_id), person_id=int(user_id))
+        lemmy.private_message.create(f"Confirmation: {community_name} ({community_id}) has been taken over by user id {user_id}.", pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
 
 
-
-
+def pm_vote(pm_context, pm_username, pm_account_age, pm_id, pm_sender):
+    vote_id = pm_context.split(" ")[1]
+    vote_response = pm_context.split(" ")[2]
     
+    db_response = add_vote_to_db(pm_username, vote_id, vote_response, pm_account_age)
+
+    if db_response == "duplicate":
+        lemmy.private_message.create(f"{bot_strings.GREETING} {pm_username}. Oops! It looks like you've already voted on this poll. Votes can only be counted once. \n\n{bot_strings.PM_SIGNOFF}", pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    if db_response == "notvalid":
+        lemmy.private_message.create(f"{bot_strings.GREETING} {pm_username}. Oops! It doesn't look like the poll you've tried to vote on exists. Please double check the vote ID and try again. \n\n{bot_strings.PM_SIGNOFF}", pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    if db_response == "closed":
+        lemmy.private_message.create(f"{bot_strings.GREETING} {pm_username}. Sorry, it appears the poll you're trying to vote on is now closed. Please double check the vote ID and try again. \n\n{bot_strings.PM_SIGNOFF}", pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    lemmy.private_message.create(f"{bot_strings.GREETING} {pm_username}. Your vote has been counted on the \'{db_response}\' poll. Thank you for voting! \n\n{bot_strings.PM_SIGNOFF}", pm_sender)
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+
     
 
 def is_spam_email(email):
@@ -2586,8 +2542,7 @@ def check_comments():
                         thread_id,
                         comment_poster,
                         comment_username,
-                        creator_local,
-                        comment_id)
+                        creator_local)
 
         # Initialize match flags for each post
         match_found_text = False
