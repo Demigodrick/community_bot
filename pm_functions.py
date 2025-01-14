@@ -1,0 +1,858 @@
+from lemmy_manager import get_lemmy_instance
+import time
+import random
+import pytz
+from datetime import datetime, timedelta, timezone
+import sqlite3
+from disposable_email_domains import blocklist
+import feedparser
+from dateutil.relativedelta import relativedelta
+from nio import AsyncClient, MatrixRoom
+import toml
+from config import settings
+import smtplib
+from email.mime.text import MIMEText
+from email.mime.multipart import MIMEMultipart
+from email.mime.image import MIMEImage
+import logging
+import requests
+import os
+import re
+import asyncio
+import bot_strings
+from pythorhead import Lemmy
+from pythorhead.types import SortType, ListingType, FeatureType
+
+lemmy = get_lemmy_instance()
+
+
+def pm_help(user_admin, pm_username, pm_id, pm_sender):
+    greeting = f"{bot_strings.GREETING} {pm_username}. "
+    commands = bot_strings.BOT_COMMANDS  # Common part for all users
+
+    # Add admin commands if user is an admin
+    if user_admin:
+        commands += bot_strings.BOT_ADMIN_COMMANDS
+
+    # Add the signoff at the end
+    commands += bot_strings.PM_SIGNOFF
+
+    # Send the message
+    lemmy.private_message.create(greeting + commands, pm_sender)
+
+    # Mark the message as read
+    lemmy.private_message.mark_as_read(pm_id, True)
+
+
+def pm_sub(pm_sender, status, pm_username, pm_id):
+    if broadcast_status(pm_sender, status) == "successful":
+        message = bot_strings.UNSUB_MESSAGE if status == "unsub" else bot_strings.SUB_MESSAGE
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}\n\n{message}\n\n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    lemmy.private_message.create(
+        f"{bot_strings.GREETING} {pm_username}\n\n{bot_strings.SUB_ERROR}",
+        pm_sender)
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+
+
+def pm_takeover(user_admin, pm_context, pm_id, pm_username, pm_sender):
+    if user_admin:
+        community_name = pm_context.split("-")[1].strip()
+        user_id = pm_context.split("-")[2].strip()
+
+        if user_id == "self":
+            user_id = pm_id
+
+        community_id = lemmy.discover_community(community_name)
+
+        logging.info(
+            f"Request for community {community_name} to be transferred to {user_id}")
+
+        if community_id is None:
+            lemmy.private_message.create(
+                f"{bot_strings.GREETING} {pm_username}. Sorry, I can't find the community you've requested.",
+                pm_sender)
+            lemmy.private_message.mark_as_read(pm_id, True)
+            return
+
+        lemmy.community.add_mod_to_community(
+            True, community_id=int(community_id), person_id=int(user_id))
+        lemmy.private_message.create(
+            f"Confirmation: {community_name} ({community_id}) has been taken over by user id {user_id}.",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+
+
+def pm_vote(
+        pm_context,
+        pm_username,
+        pm_account_age,
+        pm_id,
+        pm_sender,
+        add_vote_to_db):
+    vote_id = pm_context.split(" ")[1]
+    vote_response = pm_context.split(" ")[2]
+
+    db_response = add_vote_to_db(
+        pm_username,
+        vote_id,
+        vote_response,
+        pm_account_age)
+
+    if db_response == "duplicate":
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. Oops! It looks like you've already voted on this poll. Votes can only be counted once. \n\n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    if db_response == "notvalid":
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. Oops! It doesn't look like the poll you've tried to vote on exists. Please double check the vote ID and try again. \n\n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    if db_response == "closed":
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. Sorry, it appears the poll you're trying to vote on is now closed. Please double check the vote ID and try again. \n\n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    lemmy.private_message.create(
+        f"{bot_strings.GREETING} {pm_username}. Your vote has been counted on the \'{db_response}\' poll. Thank you for voting! \n\n{bot_strings.PM_SIGNOFF}",
+        pm_sender)
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+
+
+def pm_poll(
+        user_admin,
+        pm_context,
+        pm_username,
+        pm_id,
+        pm_sender,
+        create_poll):
+    if user_admin:
+        poll_name = pm_context.split("@")[1]
+        poll_id = create_poll(poll_name, pm_username)
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. Your poll has been created with ID number {poll_id}. You can now give this ID to people and they can now cast a vote using the `#vote` operator.\n\n {bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+    lemmy.private_message.create(
+        f"{bot_strings.GREETING} {pm_username}. You need to be an instance admin in order to create a poll.\n\n {bot_strings.PM_SIGNOFF}",
+        pm_sender)
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+
+
+def pm_closepoll(
+        user_admin,
+        pm_context,
+        pm_username,
+        pm_id,
+        pm_sender,
+        close_poll):
+    if user_admin:
+        poll_id = pm_context.split("@")[1]
+        if close_poll(poll_id) == "closed":
+            lemmy.private_message.create(
+                f"{bot_strings.GREETING} {pm_username}. Your poll (ID = {poll_id}) has been closed \n\n {bot_strings.PM_SIGNOFF}",
+                pm_sender)
+            lemmy.private_message.mark_as_read(pm_id, True)
+            return
+    lemmy.private_message.create(
+        f"{bot_strings.GREETING} {pm_username}. I couldn't close that poll due to an error. \n\n {bot_strings.PM_SIGNOFF}",
+        pm_sender)
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+
+
+def pm_countpoll(
+        user_admin,
+        pm_context,
+        pm_username,
+        pm_id,
+        pm_sender,
+        count_votes):
+    if user_admin:
+        poll_id = pm_context.split("@")[1]
+        yes_votes, no_votes = count_votes(poll_id)
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. There are {yes_votes} yes votes and {no_votes} no votes on that poll. \n\n {bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+
+
+def pm_giveaway(user_admin, pm_id, pm_context, add_giveaway_thread):
+    if user_admin:
+        thread_id = pm_context.split(" ")[1]
+        add_giveaway_thread(thread_id)
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+
+
+def pm_closegiveaway(user_admin, close_giveaway_thread, pm_context, pm_id):
+    if user_admin:
+        thread_id = pm_context.split(" ")[1]
+        close_giveaway_thread(thread_id)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+
+
+def pm_drawgiveaway(
+        user_admin,
+        draw_giveaway_thread,
+        pm_context,
+        pm_username,
+        pm_sender,
+        pm_id):
+    if user_admin:
+        thread_id = pm_context.split(" ")[1]
+        num_winners = pm_context.split(" ")[2]
+        draw_status = draw_giveaway_thread(thread_id, num_winners)
+        if draw_status == "min_winners":
+            lemmy.private_message.create(
+                f"{bot_strings.GREETING} {pm_username}. There are too few entrants to draw your giveaway with that many winners. Please reduce the amount of winners or encourage more entrants! \n\n {bot_strings.PM_SIGNOFF}",
+                pm_sender)
+            lemmy.private_message.mark_as_read(pm_id, True)
+            return
+
+        winners = draw_status
+        winner_names = ', '.join(winners)
+        comment_body = f"Congratulations to the winners of this giveaway: {winner_names}!\n\nThe winners of this giveaway have been drawn randomly by ZippyBot."
+        lemmy.comment.create(int(thread_id), comment_body)
+        lemmy.post.lock(int(thread_id), True)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+
+
+def pm_broadcast(user_admin, pm_context, pm_id, broadcast_message):
+    if user_admin:
+        message = pm_context.replace('#broadcast', "", 1)
+        broadcast_message(message)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+
+
+def pm_rssdelete(pm_context, pm_sender, pm_username, pm_id, delete_rss):
+    feed_id = pm_context.split(" ")[1]
+    status = delete_rss(feed_id, pm_sender)
+
+    if status == "no_exist":
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. Sorry, there is not an RSS feed with that ID number. Please try again.\n\n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    if status == "not_mod":
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. Sorry, you'll need to be a mod of this community before deleting an RSS feed.\n\n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    if status == "deleted":
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. The RSS feed has been deleted for this community.\n\n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+
+
+def pm_welcomedelete(
+        pm_context,
+        pm_username,
+        pm_sender,
+        pm_id,
+        delete_welcome):
+
+    com_name = pm_context.split(" ")[1]
+    status = delete_welcome(com_name, pm_sender)
+
+    if status == "no_exist":
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. Sorry, there is not a Welcome message associated with that community.\n\n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    if status == "not_mod":
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. Sorry, you'll need to be a mod of this community before deleting the Welcome message.\n\n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    if status == "deleted":
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. The Welcome message has been deleted for this community.\n\n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+
+
+def pm_comscan(pm_context, pm_username, pm_sender, pm_id, add_community_word):
+    parts = pm_context.split()
+    filters = {
+        'words': None,
+        'community': None,
+        'action': None
+    }
+
+    flag = None
+    for part in parts:
+        if part.startswith('-'):
+            flag = part
+        elif flag:
+            if flag == '-w':
+                filters['words'] = part.split(',')
+            elif flag == '-a':
+                filters['action'] = part
+            elif flag == '-c':
+                filters['community'] = part
+            flag = None
+
+    if not filters['community']:
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. You will need to specify the community with the `-c` flag for this tool to work.\n\n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    if not filters['words']:
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. You will need to specify words in a comma-separated list, i.e., `-w word1,word2,word3`.\n\n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    if not filters['action']:
+        filters['action'] = "report"
+
+    if filters['action'] != "report" and filters['action'] != "remove":
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. You've not defined a valid action to take. Please ensure you either use `-a report` or `-a remove`.\n\n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    output = lemmy.community.get(name=filters['community'])
+
+    for moderator_info in output['moderators']:
+        if moderator_info['moderator']['id'] == pm_sender:
+            is_moderator = True
+            break
+
+    if not is_moderator:
+        # if pm_sender is not a moderator, send a private message
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. As you are not the moderator of this community, you are not able to use this tool for it.\n\n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    word_add_result = add_community_word(
+        filters['community'],
+        filters['words'],
+        filters['action']
+    )
+
+    if word_add_result == "added":
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. Your list of words has been created/updated. ZippyBot will scan for these words and action them as requested.\n\n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+
+
+def pm_welcome(pm_context, pm_username, pm_sender, pm_id, add_welcome_message):
+
+    filters = {
+        'community': None,
+        'message': None
+    }
+
+    c_index = pm_context.find('-c')
+    m_index = pm_context.find('-m')
+
+    # Extract community name
+    if c_index != -1 and m_index != -1:
+        community_name = pm_context[c_index + 3:m_index].strip()
+        filters['community'] = community_name
+
+    # Extract message, considering everything after "-m"
+    if m_index != -1:
+        message = pm_context[m_index + 3:].strip(' “”"\'\n')
+        filters['message'] = message
+
+    if not filters['message']:
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. Sorry, you can't have a blank welcome message for a community. Please include some text, personalise the message and make it welcoming and friendly!\n\n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    output = lemmy.community.get(name=filters['community'])
+
+    if output is None:
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. The community you requested can't be found. Please double check the spelling and name and try again.\n\n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    for moderator_info in output['moderators']:
+        if moderator_info['moderator']['id'] == pm_sender:
+            is_moderator = True
+            break
+
+    if not is_moderator:
+        # if pm_sender is not a moderator, send a private message
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. As you are not the moderator of this community, you are not able to set a welcome message for it.\n\n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    welcome_message_result = add_welcome_message(
+        filters['community'],
+        filters['message']
+    )
+
+    if welcome_message_result == "added":
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. I have successfully added the welcome message to the community. You can run this command again to change the message.\n\n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+    continue
+
+
+def pm_rss(
+        pm_context,
+        pm_username,
+        pm_sender,
+        pm_id,
+        add_new_feed,
+        connect_to_rss_db,
+        fetch_latest_posts,
+        insert_new_post):
+    pattern = r'-(url|url_exc|url_inc|title_inc|title_exc|c|t|new_only|ignore)\s*(?:(?:"(.*?)")|(?:“(.*?)”)|([^\s]+))?(?=\s+-|$)'
+
+    filters = {
+        'feed_url': None,
+        'url_excludes_filter': None,
+        'url_contains_filter': None,
+        'title_excludes_filter': None,
+        'title_contains_filter': None,
+        'community': None,
+        'tag': None
+    }
+
+    ignore_bozo_check = False
+    new_only = False
+
+    matches = re.findall(pattern, pm_context)
+
+    for match in matches:
+        flag = match[0]
+        value = next((m for m in match[1:] if m), None)
+
+        if flag == 'url':
+            filters['feed_url'] = value
+        elif flag == 'url_exc':
+            filters['url_excludes_filter'] = value
+        elif flag == 'url_inc':
+            filters['url_contains_filter'] = value
+        elif flag == 'title_inc':
+            filters['title_contains_filter'] = value
+        elif flag == 'title_exc':
+            filters['title_excludes_filter']
+        elif flag == 'c':
+            filters['community'] = value
+        elif flag == 't':
+            filters['tag'] = value
+        elif flag == 'new_only':
+            new_only = True
+        elif flag == 'ignore':
+            ignore_bozo_check = True
+
+    if not filters['feed_url']:
+        lemmy.private_message.create(
+            bot_strings.GREETING +
+            " " +
+            pm_username +
+            ". You will need to include a link to an RSS feed for this to work."
+            "\n \n" +
+            bot_strings.PM_SIGNOFF,
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        continue
+
+    if not filters['community']:
+        lemmy.private_message.create(
+            bot_strings.GREETING +
+            " " +
+            pm_username +
+            ". You will need to specify the community you want the RSS feed to be posted to with `-c community_name`."
+            "\n \n" +
+            bot_strings.PM_SIGNOFF,
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        continue
+
+    output = lemmy.community.get(name=filters['community'])
+
+    if output is None:
+        lemmy.private_message.create(
+            bot_strings.GREETING +
+            " " +
+            pm_username +
+            ". The community you requested can't be found. Please double check the spelling and name and try again."
+            "\n \n" +
+            bot_strings.PM_SIGNOFF,
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        continue
+
+    com_name = filters['community']
+    filters['community'] = lemmy.discover_community(
+        filters['community'])
+
+    # check if user is moderator of community
+    is_moderator = False
+
+    for moderator_info in output['moderators']:
+        if moderator_info['moderator']['id'] == pm_sender:
+            is_moderator = True
+            break
+
+    if not is_moderator:
+        # if pm_sender is not a moderator, send a private message
+        lemmy.private_message.create(
+            bot_strings.GREETING +
+            " " +
+            pm_username +
+            ". As you are not the moderator of this community, you are not able to add an RSS feed to it."
+            "\n \n" +
+            bot_strings.PM_SIGNOFF,
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        continue
+
+    # check url is a valid rss feed
+    feed_url = filters['feed_url']
+    valid_rss = feedparser.parse(feed_url)
+    if not ignore_bozo_check and (
+            valid_rss.bozo != 0 or 'title' not in valid_rss.feed):
+        lemmy.private_message.create(
+            bot_strings.GREETING +
+            " " +
+            pm_username +
+            ". I can't find a valid RSS feed in the URL you've provided. Please double check you're linking directly to an RSS feed."
+            "\n \n" +
+            bot_strings.PM_SIGNOFF,
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        continue
+
+    else:
+        add_new_feed_result = add_new_feed(
+            filters['feed_url'],
+            filters['url_contains_filter'],
+            filters['url_excludes_filter'],
+            filters['title_contains_filter'],
+            filters['title_excludes_filter'],
+            filters['community'],
+            filters['tag']
+        )
+
+        if add_new_feed_result == "exists":
+            lemmy.private_message.create(
+                bot_strings.GREETING +
+                " " +
+                pm_username +
+                f". The RSS feed you're trying to add already exists in the [{com_name}](/c/{com_name}@{settings.INSTANCE}) community.",
+                pm_sender)
+        elif add_new_feed_result is None:
+            lemmy.private_message.create(
+                bot_strings.GREETING +
+                " " +
+                pm_username +
+                ". An error occurred while adding the RSS feed. Please try again.",
+                pm_sender)
+        else:
+            feed_id = add_new_feed_result
+            lemmy.private_message.create(
+                bot_strings.GREETING +
+                " " +
+                pm_username +
+                f". I have successfully added the requested RSS feed to the [{com_name}](/c/{com_name}@{settings.INSTANCE}) community. The ID for this RSS feed is {add_new_feed_result} - please keep this safe as you'll need it if you want to delete the feed in the future.",
+                pm_sender)
+
+        lemmy.private_message.mark_as_read(pm_id, True)
+
+        if new_only:
+            with connect_to_rss_db() as conn:
+                cursor = conn.cursor()
+                cursor.execute("""
+                    SELECT feed_id, feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag
+                    FROM feeds
+                    WHERE feed_url = ?
+                    """, (feed_url,))
+
+                feed_details = cursor.fetchone()
+
+            if feed_details:
+                feed_id, feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag = feed_details
+                posts = fetch_latest_posts(
+                    feed_url,
+                    url_contains_filter,
+                    url_excludes_filter,
+                    title_contains_filter,
+                    title_excludes_filter,
+                    community,
+                    tag)
+                for post in posts:
+                    insert_new_post(feed_id, post)
+
+
+def pm_autopost(pm_context, pm_username, pm_sender, pm_id, add_autopost_to_db):
+    # define the pattern to match each qualifier and its following
+    # content
+    pattern = r"-(c|t|b|u|d|h|f)\s+(\"[^\"]*\"|'[^']*'|[^\"\s-][^\s-]*)"
+
+    # find all matches
+    matches = re.findall(pattern, pm_context)
+
+    post_data = {
+        'community': None,
+        'mod_id': None,
+        'title': None,
+        'url': None,
+        'body': None,
+        'day': None,
+        'time': None,
+        'frequency': None
+    }
+
+    # map the matches to the correct keys in the dictionary
+    for key, value in matches:
+        # If the value is wrapped in quotes, remove the quotes
+        if value.startswith('"') and value.endswith(
+                '"') or value.startswith("'") and value.endswith("'"):
+            value = value[1:-1]
+        if key == 'c':
+            post_data['community'] = value
+        elif key == 't':
+            post_data['title'] = value
+        elif key == 'b':
+            post_data['body'] = value
+        elif key == 'u':
+            post_data['url'] = value
+        elif key == 'd':
+            post_data['day'] = value
+        elif key == 'h':
+            post_data['time'] = value
+        elif key == 'f':
+            post_data['frequency'] = value
+
+    # check mandatory fields
+    if post_data['community'] is None:
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. In order to use this command, you will need to specify a community with the `-c` flag, i.e. `-c gaming`.\n\n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    if post_data['title'] is None:
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. In order to use this command, you will need to specify a title with the `-t` flag, i.e. `-t Weekly Thread`. You can also use the following commands in the title: \n\n"
+            "- %d (Day - i.e. 12) \n"
+            "- %m (Month - i.e. June) \n"
+            "- %y (Year - i.e. 2023) \n"
+            "- %w (Weekday - i.e. Monday) \n\n"
+            "For example, `Gaming Thread %w %d %m %y` would give you a title of `Gaming Thread Monday 12 June 2023`.\n\n"
+            f"{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    if post_data['day'] is None:
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. In order to use this command, you will need to specify a day of the week with the `-d` flag, i.e. `-d monday`, or a specific date you want the first post to be posted in YYYYMMDD format, i.e. `-d 20230612`.\n\n"
+            f"{bot_strings.PM_SIGNOFF}",
+            pm_sender
+        )
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    if post_data['time'] is None:
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. In order to use this command, you will need to specify a time with the `-h` flag, i.e. `-h 07:30`. Remember all times are UTC!.\n\n"
+            f"{bot_strings.PM_SIGNOFF}", pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    if post_data['frequency'] is None:
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. In order to use this command, you will need to specify a post frequency with the `-f` flag, i.e. `-f weekly`. \n\n"
+            f"You can use the following frequencies: \n"
+            f"- once (the post will only happen once) \n"
+            f"- weekly (every 7 days) \n"
+            f"- fortnightly (every 14 days) \n"
+            f"- 4weekly (every 28 days) \n"
+            f"- monthly (once a month)\n\n"
+            f"{bot_strings.PM_SIGNOFF}", pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    if post_data['frequency'] not in [
+            "once", "weekly", "fortnightly", "4weekly", "monthly"]:
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. I couldn't find a valid frequency following the -f flag. \n\n"
+            f"You can use the following frequencies: \n"
+            f"- once (the post will only happen once) \n"
+            f"- weekly (every 7 days) \n"
+            f"- fortnightly (every 14 days) \n"
+            f"- 4weekly (every 28 days) \n"
+            f"- monthly (once a month)\n\n"
+            f"{bot_strings.PM_SIGNOFF}", pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    # check community is real
+    output = lemmy.community.get(name=post_data['community'])
+
+    if output is None:
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. The community you requested can't be found. Please double check the spelling and name and try again.\n\n"
+            f"{bot_strings.PM_SIGNOFF}", pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    # check if user is moderator of community
+    is_moderator = False
+
+    for moderator_info in output['moderators']:
+        if moderator_info['moderator']['id'] == pm_sender:
+            is_moderator = True
+            break  # stop the loop as soon as we find a matching moderator
+
+    if not is_moderator:
+        # if pm_sender is not a moderator, send a private message
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. As you are not the moderator of this community, you are not able to create a scheduled post for it.\n\n"
+            f"{bot_strings.PM_SIGNOFF}", pm_sender)
+
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    post_data['mod_id'] = pm_sender
+
+    date_format = "%Y%m%d"
+
+    try:
+        parsed_date = datetime.strptime(post_data['day'], date_format)
+        # check if the date is in the past
+        if parsed_date.date() < datetime.now().date():
+            lemmy.private_message.create(
+                f"{bot_strings.GREETING} {pm_username}. The date of the post you scheduled is in the past. Unfortunately, I don't have a time machine :( \n\n{bot_strings.PM_SIGNOFF}",
+                pm_sender)
+            lemmy.private_message.mark_as_read(pm_id, True)
+            return
+        else:
+            day_type = "date"
+    except ValueError:
+        # if it's not a date, check if it's a day of the week
+        weekdays = [
+            "monday",
+            "tuesday",
+            "wednesday",
+            "thursday",
+            "friday",
+            "saturday",
+            "sunday"]
+        if post_data['day'].lower() in weekdays:
+            day_type = "day"
+        else:
+            lemmy.private_message.create(
+                f"{bot_strings.GREETING} {pm_username}. Sorry, I can't work out when you want your post scheduled. Please pick a day of the week or specify a date you want recurring posts to start! Remember dates should be in YYYYMMDD format. \n\n{bot_strings.PM_SIGNOFF}",
+                pm_sender)
+            lemmy.private_message.mark_as_read(pm_id, True)
+            return
+
+    # Convert the day, time, and frequency into a scheduled datetime
+    if day_type == "day":
+        if post_data['day'] and post_data['time']:
+            next_post_date = get_first_post_date(
+                post_data['day'], post_data['time'], post_data['frequency'])
+            post_data['scheduled_post'] = next_post_date
+            dtype = "Day"
+
+    if day_type == "date":
+        if post_data['day'] and post_data['time']:
+            datetime_string = f"{post_data['day']} {post_data['time']}"
+            datetime_obj = datetime.strptime(
+                datetime_string, '%Y%m%d %H:%M')
+            uk_timezone = pytz.timezone('UTC')
+            localized_datetime = uk_timezone.localize(datetime_obj)
+            post_data['scheduled_post'] = localized_datetime.astimezone(
+                pytz.utc)
+            next_post_date = post_data['scheduled_post']
+            dtype = "Date (YYYYMMDD)"
+
+    # Insert into database
+    auto_post_id = add_autopost_to_db(post_data)
+
+    # fix for optional fields for PM purposes
+    if post_data['url'] is None:
+        post_data['url'] = ""
+    if post_data['body'] is None:
+        post_data['body'] = ""
+
+    lemmy.private_message.create(
+        f"{bot_strings.GREETING} {pm_username}. \n\n"
+        f"The details for your scheduled post are as follows: \n\n"
+        f"- Community: {post_data['community']}\n\n"
+        f"- Post Title: {post_data['title']}\n"
+        f"- Post Body: {post_data['body']}\n"
+        f"- Post URL: {post_data['url']}\n"
+        f"- {dtype}: {post_data['day']}\n"
+        f"- Time (UTC): {post_data['time']}\n"
+        f"- Frequency: {post_data['frequency']}\n"
+        f"- Your next post date is: {next_post_date}\n\n"
+        f"- The ID for this autopost is: {auto_post_id}. (Keep this safe as you will need it to cancel your autopost in the future, if you've set up for a repeating schedule.)\n\n"
+        f"{bot_strings.PM_SIGNOFF}", pm_sender)
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
