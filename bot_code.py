@@ -664,7 +664,7 @@ def check_pms():
 
         # mod action - pin a post
         if pm_context.split(" ")[0] == '#autopost':
-            pmf.pm_autopost(pm_context, pm_username, pm_sender, pm_id, add_autopost_to_db)
+            pmf.pm_autopost(pm_context, pm_username, pm_sender, pm_id, add_autopost_to_db, get_first_post_date)
             continue
 
         if pm_context.split(" ")[0] == "#autopostdelete":
@@ -687,12 +687,11 @@ def check_pms():
             continue
 
         if pm_context.split(" ")[0] == "#ban":
-            pmf.pm_ban(user_admin, pm_sender, pm_context, ban_email, send_matrix_message)
+            pmf.pm_ban(user_admin, pm_sender, pm_context, pm_id, ban_email, send_matrix_message)
             continue
 
-
         if pm_context.split(" ")[0] == '#warn':
-            pmf.pm_warn(user_admin, pm_context, pm_username, pm_id, ordinal, get_warning_count, send_matrix_message)
+            pmf.pm_warn(user_admin, pm_context, pm_username, pm_id, pm_sender, ordinal, get_warning_count, send_matrix_message, log_warning)
             continue
 
         if pm_context.split(" ")[0] == '#lock':
@@ -700,9 +699,8 @@ def check_pms():
             continue
 
         # keep this at the bottom
-        else:
-            pmf.pm_notunderstood(pm_username, pm_sender, pm_id)
-            continue
+        pmf.pm_notunderstood(pm_username, pm_sender, pm_id)
+        continue
  
 def is_spam_email(email):
 

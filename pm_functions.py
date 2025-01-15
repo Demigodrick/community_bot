@@ -1,27 +1,21 @@
-from lemmy_manager import get_lemmy_instance
-import time
-import random
-import pytz
-from datetime import datetime, timedelta, timezone
-import sqlite3
-from disposable_email_domains import blocklist
-import feedparser
-from dateutil.relativedelta import relativedelta
-from nio import AsyncClient, MatrixRoom
-import toml
-from config import settings
-import smtplib
-from email.mime.text import MIMEText
-from email.mime.multipart import MIMEMultipart
-from email.mime.image import MIMEImage
-import logging
-import requests
-import os
-import re
 import asyncio
 import bot_strings
+import logging
+import os
+import pytz
+import re
+import requests
+import sqlite3
+import time
+import toml
+from config import settings
+from dateutil.relativedelta import relativedelta
+from datetime import datetime, timedelta, timezone
+from lemmy_manager import get_lemmy_instance
 from pythorhead import Lemmy
 from pythorhead.types import SortType, ListingType, FeatureType
+import feedparser
+
 
 lemmy = get_lemmy_instance()
 
@@ -509,25 +503,17 @@ def pm_rss(
 
     if not filters['feed_url']:
         lemmy.private_message.create(
-            bot_strings.GREETING +
-            " " +
-            pm_username +
-            ". You will need to include a link to an RSS feed for this to work."
-            "\n \n" +
-            bot_strings.PM_SIGNOFF,
-            pm_sender)
+            f"{bot_strings.GREETING} {pm_username}. You will need to include a link to an RSS feed for this to work.\n \n{bot_strings.PM_SIGNOFF}",
+            pm_sender
+        )
         lemmy.private_message.mark_as_read(pm_id, True)
         return
 
     if not filters['community']:
         lemmy.private_message.create(
-            bot_strings.GREETING +
-            " " +
-            pm_username +
-            ". You will need to specify the community you want the RSS feed to be posted to with `-c community_name`."
-            "\n \n" +
-            bot_strings.PM_SIGNOFF,
-            pm_sender)
+            f"{bot_strings.GREETING} {pm_username}. You will need to specify the community you want the RSS feed to be posted to with `-c community_name`.\n \n{bot_strings.PM_SIGNOFF}",
+            pm_sender
+        )
         lemmy.private_message.mark_as_read(pm_id, True)
         return
 
@@ -535,13 +521,9 @@ def pm_rss(
 
     if output is None:
         lemmy.private_message.create(
-            bot_strings.GREETING +
-            " " +
-            pm_username +
-            ". The community you requested can't be found. Please double check the spelling and name and try again."
-            "\n \n" +
-            bot_strings.PM_SIGNOFF,
-            pm_sender)
+            f"{bot_strings.GREETING} {pm_username}. The community you requested can't be found. Please double check the spelling and name and try again.\n \n{bot_strings.PM_SIGNOFF}",
+            pm_sender
+        )
         lemmy.private_message.mark_as_read(pm_id, True)
         return
 
@@ -560,13 +542,9 @@ def pm_rss(
     if not is_moderator:
         # if pm_sender is not a moderator, send a private message
         lemmy.private_message.create(
-            bot_strings.GREETING +
-            " " +
-            pm_username +
-            ". As you are not the moderator of this community, you are not able to add an RSS feed to it."
-            "\n \n" +
-            bot_strings.PM_SIGNOFF,
-            pm_sender)
+            f"{bot_strings.GREETING} {pm_username}. As you are not the moderator of this community, you are not able to add an RSS feed to it.\n \n{bot_strings.PM_SIGNOFF}",
+            pm_sender
+        )
         lemmy.private_message.mark_as_read(pm_id, True)
         return
 
@@ -576,78 +554,67 @@ def pm_rss(
     if not ignore_bozo_check and (
             valid_rss.bozo != 0 or 'title' not in valid_rss.feed):
         lemmy.private_message.create(
-            bot_strings.GREETING +
-            " " +
-            pm_username +
-            ". I can't find a valid RSS feed in the URL you've provided. Please double check you're linking directly to an RSS feed."
-            "\n \n" +
-            bot_strings.PM_SIGNOFF,
-            pm_sender)
+            f"{bot_strings.GREETING} {pm_username}. I can't find a valid RSS feed in the URL you've provided. Please double check you're linking directly to an RSS feed.\n \n{bot_strings.PM_SIGNOFF}",
+            pm_sender
+        )
         lemmy.private_message.mark_as_read(pm_id, True)
         return
 
-    else:
-        add_new_feed_result = add_new_feed(
-            filters['feed_url'],
-            filters['url_contains_filter'],
-            filters['url_excludes_filter'],
-            filters['title_contains_filter'],
-            filters['title_excludes_filter'],
-            filters['community'],
-            filters['tag']
+    
+    add_new_feed_result = add_new_feed(
+        filters['feed_url'],
+        filters['url_contains_filter'],
+        filters['url_excludes_filter'],
+        filters['title_contains_filter'],
+        filters['title_excludes_filter'],
+        filters['community'],
+        filters['tag']
+    )
+
+    if add_new_feed_result == "exists":
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. The RSS feed you're trying to add already exists in the [{com_name}](/c/{com_name}@{settings.INSTANCE}) community.",
+            pm_sender
         )
+    elif add_new_feed_result is None:
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. An error occurred while adding the RSS feed. Please try again.",
+            pm_sender
+        )
+    else:
+        feed_id = add_new_feed_result
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. I have successfully added the requested RSS feed to the [{com_name}](/c/{com_name}@{settings.INSTANCE}) community. The ID for this RSS feed is {add_new_feed_result} - please keep this safe as you'll need it if you want to delete the feed in the future.",
+            pm_sender
+        )
+    lemmy.private_message.mark_as_read(pm_id, True)
 
-        if add_new_feed_result == "exists":
-            lemmy.private_message.create(
-                bot_strings.GREETING +
-                " " +
-                pm_username +
-                f". The RSS feed you're trying to add already exists in the [{com_name}](/c/{com_name}@{settings.INSTANCE}) community.",
-                pm_sender)
-        elif add_new_feed_result is None:
-            lemmy.private_message.create(
-                bot_strings.GREETING +
-                " " +
-                pm_username +
-                ". An error occurred while adding the RSS feed. Please try again.",
-                pm_sender)
-        else:
-            feed_id = add_new_feed_result
-            lemmy.private_message.create(
-                bot_strings.GREETING +
-                " " +
-                pm_username +
-                f". I have successfully added the requested RSS feed to the [{com_name}](/c/{com_name}@{settings.INSTANCE}) community. The ID for this RSS feed is {add_new_feed_result} - please keep this safe as you'll need it if you want to delete the feed in the future.",
-                pm_sender)
+    if new_only:
+        with connect_to_rss_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT feed_id, feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag
+                FROM feeds
+                WHERE feed_url = ?
+                """, (feed_url,))
 
-        lemmy.private_message.mark_as_read(pm_id, True)
+            feed_details = cursor.fetchone()
 
-        if new_only:
-            with connect_to_rss_db() as conn:
-                cursor = conn.cursor()
-                cursor.execute("""
-                    SELECT feed_id, feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag
-                    FROM feeds
-                    WHERE feed_url = ?
-                    """, (feed_url,))
-
-                feed_details = cursor.fetchone()
-
-            if feed_details:
-                feed_id, feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag = feed_details
-                posts = fetch_latest_posts(
-                    feed_url,
-                    url_contains_filter,
-                    url_excludes_filter,
-                    title_contains_filter,
-                    title_excludes_filter,
-                    community,
-                    tag)
-                for post in posts:
-                    insert_new_post(feed_id, post)
+        if feed_details:
+            feed_id, feed_url, url_contains_filter, url_excludes_filter, title_contains_filter, title_excludes_filter, community, tag = feed_details
+            posts = fetch_latest_posts(
+                feed_url,
+                url_contains_filter,
+                url_excludes_filter,
+                title_contains_filter,
+                title_excludes_filter,
+                community,
+                tag)
+            for post in posts:
+                insert_new_post(feed_id, post)
 
 
-def pm_autopost(pm_context, pm_username, pm_sender, pm_id, add_autopost_to_db):
+def pm_autopost(pm_context, pm_username, pm_sender, pm_id, add_autopost_to_db, get_first_post_date):
     # define the pattern to match each qualifier and its following
     # content
     pattern = r"-(c|t|b|u|d|h|f)\s+(\"[^\"]*\"|'[^']*'|[^\"\s-][^\s-]*)"
@@ -864,7 +831,9 @@ def pm_autopostdelete(
         pm_username,
         pm_sender,
         pm_id):
-    pin_id = pm_context.split(" ")[1]
+    
+    split_context = pm_context.split(" ")
+    pin_id = split_context[1]
     del_post = len(split_context) >= 3 and split_context[2] != ""
 
     delete_conf = delete_autopost(pin_id, pm_sender, del_post)
@@ -947,7 +916,7 @@ def pm_reject(pm_context, pm_sender, pm_username, pm_id, reject_user):
         return
 
 
-def pm_ban(user_admin, pm_sender, pm_context, ban_email, send_matrix_message):
+def pm_ban(user_admin, pm_sender, pm_context, pm_id, ban_email, send_matrix_message):
     if user_admin or pm_sender == 9532930:
         person_id = pm_context.split(" ")[1]
         lemmy.private_message.mark_as_read(pm_id, True)
@@ -981,9 +950,11 @@ def pm_warn(
         pm_context,
         pm_username,
         pm_id,
+        pm_sender,
         ordinal,
         get_warning_count,
-        send_matrix_message):
+        send_matrix_message,
+        log_warning):
     if user_admin:
         parts = pm_context.split("#")
         if len(parts) > 1 and parts[1].strip() == "warn":
@@ -1099,4 +1070,3 @@ def pm_notunderstood(pm_username, pm_sender, pm_id):
         pm_sender
     )
     lemmy.private_message.mark_as_read(pm_id, True)
-    return
