@@ -13,5 +13,5 @@ def login():
 def get_lemmy_instance():
     global lemmy
     if lemmy is None:
-        raise ValueError("Lemmy instance is not initialized. Call `login()` first.")
+        login()
     return lemmy

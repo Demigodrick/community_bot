@@ -230,6 +230,9 @@ def connect_to_giveaway_db():
     return sqlite3.connect('resources/giveaway.db')
 
 
+def connect_to_games_db():
+    return sqlite3.connect('resources/games.db')
+
 def execute_sql_query(connection, query, params=()):
     with connection:
         curs = connection.cursor()
@@ -589,7 +592,7 @@ def check_pms():
             continue
 
         if pm_context == "#feedback":
-            lemmy.private_message.create(f"{bot_strings.GREETING} {pm_username}\n\nThe access code for the feedback survey is {settings.SURVEY_CODE}\n\n You can access the survey by [clicking here]({bot_strings.FEEDBACK_URL}) and selecting the available survey.\n\n{bot_strings.PM_SIGNOFF}", pm_sender)
+            lemmy.private_message.create(f"{bot_strings.GREETING} {pm_username}\n\n{bot_strings.FEEDBACK_MESSAGE}\n\n{bot_strings.PM_SIGNOFF}", pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
 
@@ -657,545 +660,48 @@ def check_pms():
         # mod/admin action - create rss feed in community
         if pm_context.split(" ")[0] == "#rss":
             pmf.pm_rss(pm_context, pm_username, pm_sender, pm_id, add_new_feed, connect_to_rss_db, fetch_latest_posts, insert_new_post)
+            continue
 
         # mod action - pin a post
         if pm_context.split(" ")[0] == '#autopost':
-            # define the pattern to match each qualifier and its following
-            # content
-            pattern = r"-(c|t|b|u|d|h|f)\s+(\"[^\"]*\"|'[^']*'|[^\"\s-][^\s-]*)"
-
-            # find all matches
-            matches = re.findall(pattern, pm_context)
-
-            post_data = {
-                'community': None,
-                'mod_id': None,
-                'title': None,
-                'url': None,
-                'body': None,
-                'day': None,
-                'time': None,
-                'frequency': None
-            }
-
-            # map the matches to the correct keys in the dictionary
-            for key, value in matches:
-                # If the value is wrapped in quotes, remove the quotes
-                if value.startswith('"') and value.endswith(
-                        '"') or value.startswith("'") and value.endswith("'"):
-                    value = value[1:-1]
-                if key == 'c':
-                    post_data['community'] = value
-                elif key == 't':
-                    post_data['title'] = value
-                elif key == 'b':
-                    post_data['body'] = value
-                elif key == 'u':
-                    post_data['url'] = value
-                elif key == 'd':
-                    post_data['day'] = value
-                elif key == 'h':
-                    post_data['time'] = value
-                elif key == 'f':
-                    post_data['frequency'] = value
-
-            # check mandatory fields
-            if post_data['community'] is None:
-                lemmy.private_message.create(
-                    bot_strings.GREETING +
-                    " " +
-                    pm_username +
-                    ". In order to use this command, you will need to specify a community with the `-c` flag, i.e. `-c gaming`."
-                    "\n \n" +
-                    bot_strings.PM_SIGNOFF,
-                    pm_sender)
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
-
-            if post_data['title'] is None:
-                lemmy.private_message.create(
-                    bot_strings.GREETING +
-                    " " +
-                    pm_username +
-                    ". In order to use this command, you will need to specify a title with the `-t` flag, i.e. `-t Weekly Thread`. You can also use the following commands in the title: \n\n"
-                    "- %d (Day - i.e. 12) \n"
-                    "- %m (Month - i.e. June) \n"
-                    "- %y (Year - i.e. 2023) \n"
-                    "- %w (Weekday - i.e. Monday) \n\n"
-                    "For example, `Gaming Thread %w %d %m %y` would give you a title of `Gaming Thread Monday 12 June 2023`."
-                    "\n \n" +
-                    bot_strings.PM_SIGNOFF,
-                    pm_sender)
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
-
-            if post_data['day'] is None:
-                lemmy.private_message.create(
-                    bot_strings.GREETING +
-                    " " +
-                    pm_username +
-                    ". In order to use this command, you will need to specify a day of the week with the `-d` flag, i.e. `-d monday`, or a specific date you want the first post to be posted in YYYYMMDD format, i.e. `-d 20230612."
-                    "\n \n" +
-                    bot_strings.PM_SIGNOFF,
-                    pm_sender)
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
-
-            if post_data['time'] is None:
-                lemmy.private_message.create(
-                    bot_strings.GREETING +
-                    " " +
-                    pm_username +
-                    ". In order to use this command, you will need to specify a time with the `-h` flag, i.e. `-h 07:30` Remember all times are UTC!."
-                    "\n \n" +
-                    bot_strings.PM_SIGNOFF,
-                    pm_sender)
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
-
-            if post_data['frequency'] is None:
-                lemmy.private_message.create(
-                    bot_strings.GREETING +
-                    " " +
-                    pm_username +
-                    ". In order to use this command, you will need to specify a post frequency with the `-f` flag, i.e. `-f weekly`. \n\n"
-                    "You can use the following frequencies: \n"
-                    "- once (the post will only happen once) \n"
-                    "- weekly (every 7 days) \n"
-                    "- fortnightly (every 14 days) \n"
-                    "- 4weekly (every 28 days) \n"
-                    "- monthly (once a month)"
-                    "\n \n" +
-                    bot_strings.PM_SIGNOFF,
-                    pm_sender)
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
-
-            if post_data['frequency'] not in [
-                    "once", "weekly", "fortnightly", "4weekly", "monthly"]:
-                lemmy.private_message.create(
-                    bot_strings.GREETING +
-                    " " +
-                    pm_username +
-                    ". I couldn't find a valid frequency following the -f flag. \n\n"
-                    "You can use the following frequencies: \n"
-                    "- once (the post will only happen once) \n"
-                    "- weekly (every 7 days) \n"
-                    "- fortnightly (every 14 days) \n"
-                    "- 4weekly (every 28 days) \n"
-                    "- monthly (once a month)"
-                    "\n \n" +
-                    bot_strings.PM_SIGNOFF,
-                    pm_sender)
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
-
-            # check community is real
-            output = lemmy.community.get(name=post_data['community'])
-
-            if output is None:
-                lemmy.private_message.create(
-                    bot_strings.GREETING +
-                    " " +
-                    pm_username +
-                    ". The community you requested can't be found. Please double check the spelling and name and try again."
-                    "\n \n" +
-                    bot_strings.PM_SIGNOFF,
-                    pm_sender)
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
-
-            # check if user is moderator of community
-            is_moderator = False
-
-            for moderator_info in output['moderators']:
-                if moderator_info['moderator']['id'] == pm_sender:
-                    is_moderator = True
-                    break  # stop the loop as soon as we find a matching moderator
-
-            if not is_moderator:
-                # if pm_sender is not a moderator, send a private message
-                lemmy.private_message.create(
-                    bot_strings.GREETING +
-                    " " +
-                    pm_username +
-                    ". As you are not the moderator of this community, you are not able to create a scheduled post for it."
-                    "\n \n" +
-                    bot_strings.PM_SIGNOFF,
-                    pm_sender)
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
-
-            post_data['mod_id'] = pm_sender
-
-            date_format = "%Y%m%d"
-
-            try:
-                parsed_date = datetime.strptime(post_data['day'], date_format)
-                # check if the date is in the past
-                if parsed_date.date() < datetime.now().date():
-                    lemmy.private_message.create(
-                        bot_strings.GREETING +
-                        " " +
-                        pm_username +
-                        ". The date of the post you scheduled is in the past. Unfortunately I don't have a time machine :( \n\n"
-                        "\n \n" +
-                        bot_strings.PM_SIGNOFF,
-                        pm_sender)
-                    lemmy.private_message.mark_as_read(pm_id, True)
-                    continue
-                else:
-                    day_type = "date"
-            except ValueError:
-                # if it's not a date, check if it's a day of the week
-                weekdays = [
-                    "monday",
-                    "tuesday",
-                    "wednesday",
-                    "thursday",
-                    "friday",
-                    "saturday",
-                    "sunday"]
-                if post_data['day'].lower() in weekdays:
-                    day_type = "day"
-                else:
-                    lemmy.private_message.create(
-                        bot_strings.GREETING +
-                        " " +
-                        pm_username +
-                        ". Sorry, I can't work out when you want your post scheduled. Please pick a day of the week or specify a date you want recurring posts to start! Remember dates should be in YYYYMMDD format. \n\n"
-                        "\n \n" +
-                        bot_strings.PM_SIGNOFF,
-                        pm_sender)
-                    lemmy.private_message.mark_as_read(pm_id, True)
-                    continue
-
-            # Convert the day, time, and frequency into a scheduled datetime
-            if day_type == "day":
-                if post_data['day'] and post_data['time']:
-                    next_post_date = get_first_post_date(
-                        post_data['day'], post_data['time'], post_data['frequency'])
-                    post_data['scheduled_post'] = next_post_date
-                    dtype = "Day"
-
-            if day_type == "date":
-                if post_data['day'] and post_data['time']:
-                    datetime_string = f"{post_data['day']} {post_data['time']}"
-                    datetime_obj = datetime.strptime(
-                        datetime_string, '%Y%m%d %H:%M')
-                    uk_timezone = pytz.timezone('UTC')
-                    localized_datetime = uk_timezone.localize(datetime_obj)
-                    post_data['scheduled_post'] = localized_datetime.astimezone(
-                        pytz.utc)
-                    next_post_date = post_data['scheduled_post']
-                    dtype = "Date (YYYYMMDD)"
-
-            # Insert into database
-            auto_post_id = add_autopost_to_db(post_data)
-
-            # fix for optional fields for PM purposes
-            if post_data['url'] is None:
-                post_data['url'] = ""
-            if post_data['body'] is None:
-                post_data['body'] = ""
-
-            lemmy.private_message.create(
-                bot_strings.GREETING +
-                " " +
-                pm_username +
-                ". \n\n"
-                "The details for your scheduled post are as follows: \n\n"
-                "- Community: " +
-                post_data['community'] +
-                "\n\n"
-                "- Post Title: " +
-                post_data['title'] +
-                "\n"
-                "- Post Body: " +
-                post_data['body'] +
-                "\n"
-                "- Post URL: " +
-                post_data['url'] +
-                "\n"
-                "- " +
-                dtype +
-                ": " +
-                post_data['day'] +
-                "\n"
-                "- Time (UTC): " +
-                post_data['time'] +
-                "\n"
-                "- Frequency: " +
-                post_data['frequency'] +
-                "\n"
-                "- Your next post date is: " +
-                str(next_post_date) +
-                "\n\n"
-                "- The ID for this autopost is: " +
-                str(auto_post_id) +
-                ". (Keep this safe as you will need it to cancel your autopost in the future, if you've set up for a repeating schedule.)"
-                "\n \n" +
-                bot_strings.PM_SIGNOFF,
-                pm_sender)
-            lemmy.private_message.mark_as_read(pm_id, True)
+            pmf.pm_autopost(pm_context, pm_username, pm_sender, pm_id, add_autopost_to_db)
             continue
 
         if pm_context.split(" ")[0] == "#autopostdelete":
-            pin_id = pm_context.split(" ")[1]
-            del_post = len(split_context) >= 3 and split_context[2] != ""
-
-            delete_conf = delete_autopost(pin_id, pm_sender, del_post)
-
-            if delete_conf == "deleted":
-                lemmy.private_message.create(
-                    bot_strings.GREETING +
-                    " " +
-                    pm_username +
-                    ". Your pinned autopost (with ID " +
-                    pin_id +
-                    ") has been successfully deleted."
-                    "\n \n" +
-                    bot_strings.PM_SIGNOFF,
-                    pm_sender)
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
-
-            if delete_conf == "not deleted":
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
-
-            if delete_conf == "no id":
-                lemmy.private_message.create(
-                    bot_strings.GREETING +
-                    " " +
-                    pm_username +
-                    ". A scheduled post with this ID does not exist."
-                    "\n \n" +
-                    bot_strings.PM_SIGNOFF,
-                    pm_sender)
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
-
-            if delete_conf == "not mod":
-                lemmy.private_message.create(
-                    bot_strings.GREETING +
-                    " " +
-                    pm_username +
-                    ". As you are not the moderator of this community, you are not able to delete a scheduled post for it."
-                    "\n \n" +
-                    bot_strings.PM_SIGNOFF,
-                    pm_sender)
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
+            pmf.pm_autopostdelete(pm_context,delete_autopost,pm_username,pm_sender,pm_id)
+            continue
 
         if pm_context == "#purgevotes":
-            if user_admin:
-                if os.path.exists('resources/vote.db'):
-                    os.remove('resources/vote.db')
-                    check_dbs()
-                    lemmy.private_message.mark_as_read(pm_id, True)
-                    continue
-            else:
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
+            pmf.pm_purgevotes(user_admin, pm_id, check_dbs)
+            continue
 
         if pm_context == "#purgeadminactions":
-            if user_admin:
-                if os.path.exists('resources/mod_actions.db'):
-                    os.remove('resources/mod_actions.db')
-                    check_dbs()
-                    lemmy.private_message.mark_as_read(pm_id, True)
-                    continue
+            pmf.pm_purgeadminactions(user_admin, pm_id, check_dbs)
+            continue
 
         if pm_context == "#purgerss":
-            if user_admin:
-                if os.path.exists('resources/rss.db'):
-                    os.remove('resources/rss.db')
-                    check_dbs()
-                    lemmy.private_message.mark_as_read(pm_id, True)
-                    continue
+            pmf.pm_purgerss(user_admin, pm_id, check_dbs)
 
         if pm_context.split(" ")[0] == "#reject":
-            parts = pm_context.split("#")
-            if len(parts) > 1 and parts[1].strip() == "reject":
-                if pm_sender == 9532930:
-                    user = parts[2].strip()
-                    rejection = parts[3].strip()
-                    reject_user(user, rejection)
-                    lemmy.private_message.mark_as_read(pm_id, True)
-                    continue
-
-                else:
-                    lemmy.private_message.create(
-                        bot_strings.GREETING +
-                        " " +
-                        pm_username +
-                        ". Sorry, you can't use this command. \n \n" +
-                        bot_strings.PM_SIGNOFF,
-                        pm_sender)
-                    lemmy.private_message.mark_as_read(pm_id, True)
-                    continue
+            pmf.pm_reject(pm_context, pm_sender, pm_username, pm_id, reject_user)
+            continue
 
         if pm_context.split(" ")[0] == "#ban":
-            if user_admin or pm_sender == 9532930:
-                person_id = pm_context.split(" ")[1]
-                lemmy.private_message.mark_as_read(pm_id, True)
-
-                ban_result = ban_email(person_id)
-
-                banned_user = lemmy.user.get(person_id)
-                if banned_user:
-                    banned_username = banned_user['person_view']['person']['name']
-
-                if ban_result == "notfound":
-                    matrix_body = f"The ban email has failed as the user ID couldn't be found ({person_id}). Make sure you're using the public ID (can be found in the URL when sending a PM)."
-                    asyncio.run(send_matrix_message(matrix_body))
-                elif ban_result == "sent":
-                    matrix_body = f"The ban email for id {banned_username}({person_id}) was sent. Modlog here: https://lemmy.zip/modlog?page=1&actionType=ModBan&userId={person_id}."
-                    asyncio.run(send_matrix_message(matrix_body))
-                else:
-                    # Handles any other errors from ban_email
-                    matrix_body = f"There was an error sending the ban email for id {person_id}. Please check Zippy's logs!"
-                    asyncio.run(send_matrix_message(matrix_body))
-
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
-            
-            lemmy.private_message.mark_as_read(pm_id, True)
+            pmf.pm_ban(user_admin, pm_sender, pm_context, ban_email, send_matrix_message)
             continue
 
 
         if pm_context.split(" ")[0] == '#warn':
-            if user_admin:
-                parts = pm_context.split("#")
-                if len(parts) > 1 and parts[1].strip() == "warn":
-                    if len(parts) < 4:
-                        lemmy.private_message.create(
-                            bot_strings.GREETING +
-                            " " +
-                            pm_username +
-                            ". Your command is incomplete. Please provide a valid user ID and warning message.\n\n" +
-                            bot_strings.PM_SIGNOFF,
-                            pm_sender)
-                        lemmy.private_message.mark_as_read(pm_id, True)
-                        continue
-
-                    person_id = int(parts[2].strip())
-                    warn_message = parts[3].strip()
-
-                    try:
-                        person_id = int(parts[2].strip())
-                        if person_id <= 0:
-                            raise ValueError(
-                                "User ID must be a positive integer.")
-                    except ValueError:
-                        lemmy.private_message.create(
-                            bot_strings.GREETING +
-                            " " +
-                            pm_username +
-                            ". The provided user ID is invalid. Please provide a valid positive numeric user ID.\n\n" +
-                            bot_strings.PM_SIGNOFF,
-                            pm_sender)
-                        lemmy.private_message.mark_as_read(pm_id, True)
-                        continue
-
-                    try:
-                        warned_user = lemmy.user.get(person_id)
-                    except Exception as e:
-                        lemmy.private_message.create(
-                            f"{bot_strings.GREETING} {pm_username}. Failed to retrieve user information: {str(e)}\n\n{bot_strings.PM_SIGNOFF}",
-                            pm_sender)
-                        lemmy.private_message.mark_as_read(pm_id, True)
-                        continue
-
-                    if warned_user:
-                        warned_username = warned_user['person_view']['person']['name']
-                    else:
-                        lemmy.private_message.create(
-                            bot_strings.GREETING +
-                            " " +
-                            pm_username +
-                            ". Sorry, I could not find the required user by their user id to issue a warning. Please double check and try again. \n \n" +
-                            bot_strings.PM_SIGNOFF,
-                            pm_sender)
-                        lemmy.private_message.mark_as_read(pm_id, True)
-                        continue
-
-                    try:
-                        log_warning(person_id, warn_message, pm_username)
-                    except ValueError as e:
-                        lemmy.private_message.create(
-                            f"{bot_strings.GREETING} {pm_username}. Failed to log the warning: {str(e)}\n\n{bot_strings.PM_SIGNOFF}",
-                            pm_sender)
-
-                    warning_count = ordinal(get_warning_count(person_id))
-
-                    lemmy.private_message.create(
-                        f"Hello, {warned_username}. This is an official warning from the Lemmy.zip Admin Team. \n\n >{warn_message} \n\n *This is your {warning_count} warning.* \n\n --- \n\n This message cannot be replied to. If you wish to dispute this warning, please reach out to any member of the Admin team.",
-                        int(person_id))
-                    lemmy.private_message.mark_as_read(pm_id, True)
-                    matrix_body = f"A warning has been issued by {pm_username} for user {warned_username} (User ID: {person_id}): `{warn_message}`. This is the {warning_count} warning for this user. This has been sent successfully."
-                    asyncio.run(send_matrix_message(matrix_body))
-                    continue
-
-            else:
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
+            pmf.pm_warn(user_admin, pm_context, pm_username, pm_id, ordinal, get_warning_count, send_matrix_message)
+            continue
 
         if pm_context.split(" ")[0] == '#lock':
-            if user_admin:
-                parts = pm_context.split("#")
-                if len(parts) > 1 and parts[1].strip() == "lock":
-                    thread_id = parts[2].strip()
-                    warn_message = parts[3].strip() if len(parts) > 3 else None
-
-                    output = lemmy.post.get(int(thread_id))
-
-                    if output['post_view']['post']['local']:
-                        lemmy.post.lock(int(thread_id), True)
-
-                        if warn_message:
-                            lemmy.comment.create(int(thread_id), warn_message)
-                            time.sleep(2)  # in case of delay in posting?
-                            get_comment = lemmy.comment.list(
-                                post_id=int(thread_id))
-                            latest_comment = max(
-                                get_comment,
-                                key=lambda x: x['comment']['id'],
-                                default=None)['comment']['id']
-                            lemmy.comment.distinguish(latest_comment, True)
-
-                        else:
-                            lemmy.comment.create(
-                                int(thread_id), bot_strings.THREAD_LOCK_MESSAGE)
-                            time.sleep(2)  # in case of delay in posting?
-                            get_comment = lemmy.comment.list(
-                                post_id=int(thread_id))
-                            latest_comment = max(
-                                get_comment,
-                                key=lambda x: x['comment']['id'],
-                                default=None)['comment']['id']
-                            lemmy.comment.distinguish(latest_comment, True)
-
-                        matrix_body = f"Thread locked by {pm_username}. Post: https://lemmy.zip/post/{thread_id} -> Comment: https://lemmy.zip/comment/{latest_comment}."
-                        asyncio.run(send_matrix_message(matrix_body))
-
-                        lemmy.private_message.mark_as_read(pm_id, True)
-                        continue
-            else:
-                lemmy.private_message.mark_as_read(pm_id, True)
-                continue
+            pmf.pm_lock(user_admin, pm_context, pm_username, pm_id, send_matrix_message)
+            continue
 
         # keep this at the bottom
         else:
-            lemmy.private_message.create(
-                bot_strings.GREETING +
-                " " +
-                pm_username +
-                ". Sorry, I did not understand your request. Please try again or use `#help` for a list of commands. \n \n" +
-                bot_strings.PM_SIGNOFF,
-                pm_sender)
-            lemmy.private_message.mark_as_read(pm_id, True)
+            pmf.pm_notunderstood(pm_username, pm_sender, pm_id)
             continue
  
 def is_spam_email(email):
@@ -1225,7 +731,7 @@ def get_new_users():
         new_apps = output['registration_applications']
     except BaseException:
         logging.info("Error with connection, retrying...")
-        login()
+        get_lemmy_instance()
         return
 
     for output in new_apps:
@@ -1312,7 +818,7 @@ def get_communities():
 
     except BaseException:
         logging.info("Error with connection, retrying...")
-        login()
+        get_lemmy_instance()
         return
 
     for communities in local_comm:
@@ -1468,8 +974,7 @@ def new_community_db(community_id, community_name):
         return "An unknown error occurred"
 
 
-def connect_to_games_db():
-    return sqlite3.connect('resources/games.db')
+
 
 
 def welcome_email(email):

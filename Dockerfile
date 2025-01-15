@@ -22,6 +22,8 @@ COPY requirements.txt .
 COPY bot_code.py .
 COPY healthcheck.py .
 COPY bot_strings.py .
+COPY lemmy_manager.py .
+COPY pm_functions.py .
 COPY config.py .
 COPY main.py .
 COPY .env .

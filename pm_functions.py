@@ -455,7 +455,7 @@ def pm_welcome(pm_context, pm_username, pm_sender, pm_id, add_welcome_message):
             f"{bot_strings.GREETING} {pm_username}. I have successfully added the welcome message to the community. You can run this command again to change the message.\n\n{bot_strings.PM_SIGNOFF}",
             pm_sender)
         lemmy.private_message.mark_as_read(pm_id, True)
-    continue
+    return
 
 
 def pm_rss(
@@ -517,7 +517,7 @@ def pm_rss(
             bot_strings.PM_SIGNOFF,
             pm_sender)
         lemmy.private_message.mark_as_read(pm_id, True)
-        continue
+        return
 
     if not filters['community']:
         lemmy.private_message.create(
@@ -529,7 +529,7 @@ def pm_rss(
             bot_strings.PM_SIGNOFF,
             pm_sender)
         lemmy.private_message.mark_as_read(pm_id, True)
-        continue
+        return
 
     output = lemmy.community.get(name=filters['community'])
 
@@ -543,7 +543,7 @@ def pm_rss(
             bot_strings.PM_SIGNOFF,
             pm_sender)
         lemmy.private_message.mark_as_read(pm_id, True)
-        continue
+        return
 
     com_name = filters['community']
     filters['community'] = lemmy.discover_community(
@@ -568,7 +568,7 @@ def pm_rss(
             bot_strings.PM_SIGNOFF,
             pm_sender)
         lemmy.private_message.mark_as_read(pm_id, True)
-        continue
+        return
 
     # check url is a valid rss feed
     feed_url = filters['feed_url']
@@ -584,7 +584,7 @@ def pm_rss(
             bot_strings.PM_SIGNOFF,
             pm_sender)
         lemmy.private_message.mark_as_read(pm_id, True)
-        continue
+        return
 
     else:
         add_new_feed_result = add_new_feed(
@@ -854,5 +854,249 @@ def pm_autopost(pm_context, pm_username, pm_sender, pm_id, add_autopost_to_db):
         f"- Your next post date is: {next_post_date}\n\n"
         f"- The ID for this autopost is: {auto_post_id}. (Keep this safe as you will need it to cancel your autopost in the future, if you've set up for a repeating schedule.)\n\n"
         f"{bot_strings.PM_SIGNOFF}", pm_sender)
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+
+
+def pm_autopostdelete(
+        pm_context,
+        delete_autopost,
+        pm_username,
+        pm_sender,
+        pm_id):
+    pin_id = pm_context.split(" ")[1]
+    del_post = len(split_context) >= 3 and split_context[2] != ""
+
+    delete_conf = delete_autopost(pin_id, pm_sender, del_post)
+
+    if delete_conf == "deleted":
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. Your pinned autopost (with ID {pin_id}) has been successfully deleted.\n \n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    if delete_conf == "not deleted":
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    if delete_conf == "no id":
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. A scheduled post with this ID does not exist.\n \n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    if delete_conf == "not mod":
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. As you are not the moderator of this community, you are not able to delete a scheduled post for it.\n \n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+
+
+def pm_purgevotes(user_admin, pm_id, check_dbs):
+    if user_admin:
+        if os.path.exists('resources/vote.db'):
+            os.remove('resources/vote.db')
+            check_dbs()
+            lemmy.private_message.mark_as_read(pm_id, True)
+            return
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+
+
+def pm_purgeadminactions(user_admin, pm_id, check_dbs):
+    if user_admin:
+        if os.path.exists('resources/mod_actions.db'):
+            os.remove('resources/mod_actions.db')
+            check_dbs()
+            lemmy.private_message.mark_as_read(pm_id, True)
+            return
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+
+
+def pm_purgerss(user_admin, pm_id, check_dbs):
+    if user_admin:
+        if os.path.exists('resources/rss.db'):
+            os.remove('resources/rss.db')
+            check_dbs()
+            lemmy.private_message.mark_as_read(pm_id, True)
+            return
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+
+
+def pm_reject(pm_context, pm_sender, pm_username, pm_id, reject_user):
+    parts = pm_context.split("#")
+    if len(parts) > 1 and parts[1].strip() == "reject":
+        if pm_sender == 9532930:
+            user = parts[2].strip()
+            rejection = parts[3].strip()
+            reject_user(user, rejection)
+            lemmy.private_message.mark_as_read(pm_id, True)
+            return
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. Sorry, you can't use this command.\n \n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+
+def pm_ban(user_admin, pm_sender, pm_context, ban_email, send_matrix_message):
+    if user_admin or pm_sender == 9532930:
+        person_id = pm_context.split(" ")[1]
+        lemmy.private_message.mark_as_read(pm_id, True)
+
+        ban_result = ban_email(person_id)
+
+        banned_user = lemmy.user.get(person_id)
+        if banned_user:
+            banned_username = banned_user['person_view']['person']['name']
+
+        if ban_result == "notfound":
+            matrix_body = f"The ban email has failed as the user ID couldn't be found ({person_id}). Make sure you're using the public ID (can be found in the URL when sending a PM)."
+            asyncio.run(send_matrix_message(matrix_body))
+        elif ban_result == "sent":
+            matrix_body = f"The ban email for id {banned_username}({person_id}) was sent. Modlog here: https://lemmy.zip/modlog?page=1&actionType=ModBan&userId={person_id}."
+            asyncio.run(send_matrix_message(matrix_body))
+        else:
+            # Handles any other errors from ban_email
+            matrix_body = f"There was an error sending the ban email for id {person_id}. Please check Zippy's logs!"
+            asyncio.run(send_matrix_message(matrix_body))
+
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+
+
+def pm_warn(
+        user_admin,
+        pm_context,
+        pm_username,
+        pm_id,
+        ordinal,
+        get_warning_count,
+        send_matrix_message):
+    if user_admin:
+        parts = pm_context.split("#")
+        if len(parts) > 1 and parts[1].strip() == "warn":
+            if len(parts) < 4:
+                lemmy.private_message.create(
+                    f"{bot_strings.GREETING} {pm_username}. Your command is incomplete. Please provide a valid user ID and warning message.\n\n{bot_strings.PM_SIGNOFF}",
+                    pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                return
+
+            person_id = int(parts[2].strip())
+            warn_message = parts[3].strip()
+
+            try:
+                person_id = int(parts[2].strip())
+                if person_id <= 0:
+                    raise ValueError(
+                        "User ID must be a positive integer.")
+            except ValueError:
+                lemmy.private_message.create(
+                    f"{bot_strings.GREETING} {pm_username}. The provided user ID is invalid. Please provide a valid positive numeric user ID.\n\n{bot_strings.PM_SIGNOFF}",
+                    pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                return
+
+            try:
+                warned_user = lemmy.user.get(person_id)
+            except Exception as e:
+                lemmy.private_message.create(
+                    f"{bot_strings.GREETING} {pm_username}. Failed to retrieve user information: {str(e)}\n\n{bot_strings.PM_SIGNOFF}",
+                    pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                return
+
+            if warned_user:
+                warned_username = warned_user['person_view']['person']['name']
+            else:
+                lemmy.private_message.create(
+                    f"{bot_strings.GREETING} {pm_username}. Sorry, I could not find the required user by their user ID to issue a warning. Please double-check and try again. \n \n{bot_strings.PM_SIGNOFF}",
+                    pm_sender)
+                lemmy.private_message.mark_as_read(pm_id, True)
+                return
+
+            try:
+                log_warning(person_id, warn_message, pm_username)
+            except ValueError as e:
+                lemmy.private_message.create(
+                    f"{bot_strings.GREETING} {pm_username}. Failed to log the warning: {str(e)}\n\n{bot_strings.PM_SIGNOFF}",
+                    pm_sender)
+
+            warning_count = ordinal(get_warning_count(person_id))
+
+            lemmy.private_message.create(
+                f"Hello, {warned_username}. This is an official warning from the Lemmy.zip Admin Team. \n\n >{warn_message} \n\n *This is your {warning_count} warning.* \n\n --- \n\n This message cannot be replied to. If you wish to dispute this warning, please reach out to any member of the Admin team.",
+                int(person_id))
+            lemmy.private_message.mark_as_read(pm_id, True)
+            matrix_body = f"A warning has been issued by {pm_username} for user {warned_username} (User ID: {person_id}): `{warn_message}`. This is the {warning_count} warning for this user. This has been sent successfully."
+            asyncio.run(send_matrix_message(matrix_body))
+            return
+
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+
+
+def pm_lock(user_admin, pm_context, pm_username, pm_id, send_matrix_message):
+    if user_admin:
+        parts = pm_context.split("#")
+        if len(parts) > 1 and parts[1].strip() == "lock":
+            thread_id = parts[2].strip()
+            warn_message = parts[3].strip() if len(parts) > 3 else None
+
+            output = lemmy.post.get(int(thread_id))
+
+            if output['post_view']['post']['local']:
+                lemmy.post.lock(int(thread_id), True)
+
+                if warn_message:
+                    lemmy.comment.create(int(thread_id), warn_message)
+                    time.sleep(2)  # in case of delay in posting?
+                    get_comment = lemmy.comment.list(
+                        post_id=int(thread_id))
+                    latest_comment = max(
+                        get_comment,
+                        key=lambda x: x['comment']['id'],
+                        default=None)['comment']['id']
+                    lemmy.comment.distinguish(latest_comment, True)
+
+                else:
+                    lemmy.comment.create(
+                        int(thread_id), bot_strings.THREAD_LOCK_MESSAGE)
+                    time.sleep(2)  # in case of delay in posting?
+                    get_comment = lemmy.comment.list(
+                        post_id=int(thread_id))
+                    latest_comment = max(
+                        get_comment,
+                        key=lambda x: x['comment']['id'],
+                        default=None)['comment']['id']
+                    lemmy.comment.distinguish(latest_comment, True)
+
+                matrix_body = f"Thread locked by {pm_username}. Post: https://lemmy.zip/post/{thread_id} -> Comment: https://lemmy.zip/comment/{latest_comment}."
+                asyncio.run(send_matrix_message(matrix_body))
+
+                lemmy.private_message.mark_as_read(pm_id, True)
+                return
+
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+
+
+def pm_notunderstood(pm_username, pm_sender, pm_id):
+    lemmy.private_message.create(
+        f"{bot_strings.GREETING} {pm_username}. Sorry, I did not understand your request. Please try again or use `#help` for a list of commands. \n \n{bot_strings.PM_SIGNOFF}",
+        pm_sender
+    )
     lemmy.private_message.mark_as_read(pm_id, True)
     return

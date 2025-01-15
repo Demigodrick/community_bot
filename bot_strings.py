@@ -1,3 +1,5 @@
+from config import settings
+
 # ABOUT
 # These strings are what is output as the result of a pm, request or action in the code. You should change these to reflect your instance.
 # A \n indicates a break/new line. A \n\n indicates two new lines, i.e. the start of a new paragraph.
@@ -7,6 +9,10 @@
 # Some may start with commas or spaces - this is to make sure the message
 # can be read properly. I recommend following the format too so your bot's
 # messages are legible.
+
+## INSTANCE SPECIFIC CONFIG ##
+BOT_NAME = "ZippyBot"
+FEEDBACK_URL = "https://feedback.lemmy.zip"
 
 
 ## GENERAL ##
@@ -31,8 +37,6 @@ AUTOPOST_HELP = (
     "Finally, if you want to delete a scheduled autopost, use the command `#autopostdelete` with the ID number of the autopost, i.e. `#autopostdelete 1`. You can also delete the latest pinned thread if you include `y` at the end, i.e `#autopostdelete 1 y`. \n\n If you need any further help getting this working, please contact [Demigodrick](/u/demigodrick@lemmy.zip).")
 SUB_ERROR = "Sorry, something went wrong with your request :( \n\n Please message [Demigodrick](/u/demigodrick@lemmy.zip) or [Sami](/u/sami@lemmy.zip) directly to let them know, and they'll sort it out for you."
 EMAIL_SUBJECT = "Thanks for signing up to Lemmy.zip!"
-BOT_NAME = "ZippyBot"
-FEEDBACK_URL = "https://feedback.lemmy.zip"
 WELCOME_MESSAGE = (
     "\n\n # Welcome to Lemmy.zip! \n\n Please take a moment to familiarise yourself with [our Welcome Post](https://lemmy.zip/post/43). (Text that looks like this is a clickable link!) \n\n"
     "This post has all the information you'll need to get started on Lemmy, so please have a good read first! \n\n"
@@ -118,3 +122,5 @@ UNSUB_MESSAGE = (
     "Your unsubscribe request was successful. You can resubscribe at any time by sending me a message with `#subscribe`.")
 SUB_MESSAGE = (
     "Your subscribe request was successful. You can unsubscribe at any time by sending me a message with `#unsubscribe`")
+FEEDBACK_MESSAGE = (
+    f"The access code for the feedback survey is {settings.SURVEY_CODE}\n\n You can access the survey by [clicking here]({FEEDBACK_URL}) and selecting the available survey.")
