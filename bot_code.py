@@ -54,14 +54,14 @@ stream_handler.setFormatter(logging.Formatter(
 logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
 
-logging.info(f"Log level set to {settings.DEBUG_LEVEL}")
+logging.info("Log level set to %s", settings.DEBUG_LEVEL)
 
 def create_table(conn, table_name, table_definition):
     curs = conn.cursor()
     curs.execute(
         f'''CREATE TABLE IF NOT EXISTS {table_name} {table_definition}''')
     conn.commit()
-    logging.debug(f"Checked/created {table_name} table")
+    logging.debug("Checked/created %s table", table_name)
 
 
 def check_dbs():
@@ -193,9 +193,10 @@ def check_dbs():
         logging.debug("All tables checked.")
 
     except sqlite3.Error as e:
-        logging.error(f"Database error: {e}")
+        logging.error("Database error: %s", e)
     except Exception as e:
-        logging.error(f"Exception in _query: {e}")
+        logging.error("Exception in _query: %s", e)
+
 
 
 def connect_to_vote_db():
@@ -270,7 +271,7 @@ def check_version():
         matrix_body = f"ZippyBot has been rebooted at {time_string}. If you weren't expecting this, Zippy has recovered from a crash."
         asyncio.run(send_matrix_message(matrix_body))
 
-    logging.info(f"Bot Version {current_version}")
+    logging.info("Bot Version %s", current_version)
 
 
 def add_vote_to_db(pm_username, vote_id, vote_response, pm_account_age):
@@ -308,7 +309,7 @@ def add_vote_to_db(pm_username, vote_id, vote_response, pm_account_age):
             logging.debug("Added vote to database")
             return poll_name
     except Exception as e:
-        logging.error(f"An error occurred: {e}")
+        logging.error(f"An error occurred: %s", e)
         return "error"
 
 
@@ -328,7 +329,7 @@ def create_poll(poll_name, pm_username):
                 f"Added poll to database with ID number {poll_id}")
             return poll_id
     except Exception as e:
-        logging.error(f"An error occurred: {e}")
+        logging.error("An error occurred: %s", e)
         return "error"
 
 
@@ -349,7 +350,7 @@ def close_poll(poll_id):
             execute_sql_query(conn, sqlite_update_query, (set_open, poll_id))
             return "closed"
     except Exception as e:
-        logging.error(f"An error occurred: {e}")
+        logging.error("An error occurred: %s", e)
         return "error"
 
 
@@ -363,7 +364,7 @@ def count_votes(poll_id):
             return yes_count, no_count
 
     except Exception as e:
-        logging.error(f"An error occurred: {e}")
+        logging.error("An error occurred: %s", e)
         return "error"
 
 
@@ -392,7 +393,7 @@ def add_autopost_to_db(post_data):
             autopost_id = execute_sql_query(conn, autopost_id_query)[0]
             return autopost_id
     except Exception as e:
-        logging.error(f"An error occurred: {e}")
+        logging.error("An error occurred: %s", e)
         return "error"
 
 
@@ -427,11 +428,11 @@ def delete_rss(feed_id, pm_sender):
         return "deleted"
 
     except sqlite3.IntegrityError as e:
-        logging.debug(f"Integrity error: {e}")
+        logging.debug("Integrity error: %s", e)
     except sqlite3.Error as e:
-        logging.debug(f"Database error: {e}")
+        logging.debug("Database error: %s", e)
     except Exception as e:
-        logging.debug(f"Unexpected error: {e}")
+        logging.debug("Unexpected error: %s", e)
 
 
 def delete_welcome(com_name, pm_sender):
@@ -459,11 +460,11 @@ def delete_welcome(com_name, pm_sender):
         return "deleted"
 
     except sqlite3.IntegrityError as e:
-        logging.debug(f"Integrity error: {e}")
+        logging.debug("Integrity error: %s", e)
     except sqlite3.Error as e:
-        logging.debug(f"Database error: {e}")
+        logging.debug("Database error: %s", e)
     except Exception as e:
-        logging.debug(f"Unexpected error: {e}")
+        logging.debug("Unexpected error: %s", e)
 
 
 def delete_autopost(pin_id, pm_sender, del_post):
@@ -512,7 +513,7 @@ def delete_autopost(pin_id, pm_sender, del_post):
                 return "not mod"
 
     except Exception as e:
-        logging.error(f"An error occurred: {e}")
+        logging.error("An error occurred: %s", e)
         return "error"
 
 
@@ -522,7 +523,7 @@ def clear_notifications():
         all_notifs = notif['replies']
     except BaseException:
         logging.info("Error with connection, retrying...")
-        login()
+        get_lemmy_instance()
         return
 
     for notif in all_notifs:
@@ -549,9 +550,6 @@ def check_pms():
         output = lemmy.user.get(pm_sender)
         user_local = output['person_view']['person']['local']
         user_admin = output['person_view']['is_admin']
-
-        # open to anyone on lemmy. handles urgent mod reports.
-        split_context = pm_context.split(" -")
 
         # first make sure the pm isn't coming from zippy otherwise it'll put
         # zippy in a loop.
@@ -713,7 +711,7 @@ def is_spam_email(email):
     local_part, domain = email.split('@')
 
     # Logging the domain for debugging
-    logging.info("Checking spam email with domain: " + domain)
+    logging.info("Checking spam email with domain: %s", domain)
 
     contains_suspicious_keyword = any(
         keyword in local_part.lower() for keyword in suspicious_keywords)
@@ -903,11 +901,7 @@ def draw_giveaway_thread(thread_id, num_winners):
         return winners
 
 
-def check_giveaways(
-        thread_id,
-        comment_poster,
-        comment_username,
-        creator_local):
+def check_giveaways(thread_id,comment_poster,comment_username):
     # check if post is in db
     with connect_to_giveaway_db() as conn:
         action_query = '''SELECT giveaway_id, status FROM giveaways WHERE thread_id=?'''
@@ -927,19 +921,10 @@ def check_giveaways(
                      comment_username))
                 conn.commit()
                 ticket_number = cursor.lastrowid
-                logging.info(
-                    f"User '{comment_poster}' has entered giveaway '{giveaway_id}' with ticket number '{ticket_number}'")
-                lemmy.private_message.create(
-                    bot_strings.GREETING +
-                    " " +
-                    comment_username +
-                    ". Your giveaway entry has been recorded! Your entry number is #" +
-                    str(ticket_number) +
-                    " - Good luck!",
-                    comment_poster)
+                logging.info("User '%s' has entered giveaway '%s' with ticket number '%s'", comment_poster, giveaway_id, ticket_number)
+                lemmy.private_message.create(f"{bot_strings.GREETING} {comment_username}. Your giveaway entry has been recorded! Your entry number is #{ticket_number} - Good luck!", comment_poster)
             except sqlite3.IntegrityError:
-                logging.info(
-                    f"User '{comment_poster}' has already entered giveaway '{giveaway_id}'")
+                logging.info("User '%s' has already entered giveaway '%s'", comment_poster, giveaway_id)
 
 
 def new_community_db(community_id, community_name):
@@ -1015,7 +1000,7 @@ def welcome_email(email):
     except Exception as e:
         logging.error("Error: Unable to send email.", str(e))
     finally:
-        server.quit
+        server.quit()
 
 
 def ban_email(person_id):
@@ -1063,7 +1048,7 @@ def ban_email(person_id):
                 logging.info("Ban notification email sent successfully.")
                 return "sent"
         except Exception as e:
-            logging.error("Error: Unable to send email. " + str(e))
+            logging.error("Error: Unable to send email. %s", e)
             return "error"
 
 
@@ -1118,17 +1103,14 @@ def RSS_feed():
                 url_contains_filter,
                 url_excludes_filter,
                 title_contains_filter,
-                title_excludes_filter,
-                community,
-                tag)
+                title_excludes_filter)
 
             if posts == "URL access error":
                 logging.error("Skipping RSS Feed due to URL access error.")
                 continue
 
             if not isinstance(posts, list):
-                logging.error(
-                    f"Failed to fetch posts for feed URL {feed_url}. Error: {posts}")
+                logging.error("Failed to fetch posts for feed URL %s. Error: %s", feed_url, posts)
                 continue
 
             for post in posts:
@@ -1144,7 +1126,7 @@ def RSS_feed():
                         name=post_title,
                         url=post['post_url'])
     except Exception as e:
-        logging.error(f"An error occurred: {e}")
+        logging.error("An error occurred: %s", e)
         return "error"
 
 
@@ -1157,7 +1139,7 @@ def fetch_rss_feeds():
             feeds = cursor.fetchall()
         return feeds
     except Exception as e:
-        logging.error(f"An error occurred: {e}")
+        logging.error("An error occurred: %s", e)
         return "error"
 
 
@@ -1166,24 +1148,23 @@ def fetch_latest_posts(
         url_contains_filter=None,
         url_excludes_filter=None,
         title_contains_filter=None,
-        title_excludes_filter=None,
-        community=None,
-        tag=None):
+        title_excludes_filter=None):
     try:
-        logging.debug(f"Fetching latest RSS posts from {feed_url}.")
+        logging.debug("Fetching latest RSS posts from %s", feed_url)
         # Stream=True to only fetch headers
         response = requests.get(feed_url, stream=True, timeout=10)
         if response.status_code == 404:
-            logging.error(f"URL not found (404): {feed_url}")
+            logging.error("URL not found (404): %s", feed_url)
             return "URL access error"
 
         if response.status_code == 403:
-            logging.error(f"Access forbidden (403) to URL: {feed_url}")
+            logging.error("Access forbidden (403) to URL: %s", feed_url)
             return "URL access error"
 
         if response.status_code != 200:
             logging.error(
-                f"Failed to access URL {feed_url}. HTTP status code: {response.status_code}")
+                "Failed to access URL %s. HTTP status code: %s", feed_url, response.status_code
+            )
             return "URL access error"
 
         feed = feedparser.parse(feed_url)
@@ -1218,7 +1199,7 @@ def fetch_latest_posts(
             })
         return filtered_posts
     except Exception as e:
-        logging.error(f"An error occurred: {e}")
+        logging.error("An error occurred: %s", e)
         return "error"
 
 
@@ -1242,7 +1223,7 @@ def insert_new_post(feed_id, post):
                 return True
         return False
     except Exception as e:
-        logging.error(f"An error occurred: {e}")
+        logging.error("An error occurred: %s", e)
         return "error"
 
 
@@ -1287,7 +1268,7 @@ def add_new_feed(
         feed_id = cursor.lastrowid
         return feed_id
     except sqlite3.IntegrityError as e:
-        logging.debug(f"An error occurred: {e}")
+        logging.debug("An error occurred: %s", e)
         return None
     finally:
         conn.close()
@@ -1309,7 +1290,7 @@ def add_welcome_message(community, message):
         conn.commit()
         return "added"
     except sqlite3.IntegrityError as e:
-        logging.debug(f"An error occurred: {e}")
+        logging.debug("An error occurred: %s", e)
         return None
     finally:
         conn.close()
@@ -1379,7 +1360,7 @@ def add_deal_to_db(deal_title, deal_published):
             logging.debug("Added deal to database")
             return "added"
     except Exception as e:
-        logging.error(f"An error occurred: {e}")
+        logging.error("An error occurred: %s", e)
         return "error"
 
 
@@ -1431,8 +1412,7 @@ def check_comments():
                     check_giveaways(
                         thread_id,
                         comment_poster,
-                        comment_username,
-                        creator_local)
+                        comment_username)
 
         # Initialize match flags for each post
         match_found_text = False
@@ -1487,7 +1467,7 @@ def check_comment_db(comment_id):
                 return "duplicate"
 
     except Exception as e:
-        logging.error(f"An error occurred: {e}")
+        logging.error("An error occurred: %s", e)
     return "error"
 
 
@@ -1503,7 +1483,7 @@ def add_comment_to_db(comment_id, comment_poster, mod_action):
             return "added"
 
     except Exception as e:
-        logging.error(f"An error occurred: {e}")
+        logging.error("An error occurred: %s", e)
     return "error"
 
 
@@ -1558,7 +1538,10 @@ def check_posts():
                 bot_strings.BOT_NAME)
             mod_action = "Post Flagged"
             logging.info(
-                f"Word matching community ban list found in post by {poster_name}, reported.")
+                "Word matching community ban list found in post by %s, reported.",
+                poster_name
+            )
+
         else:
             mod_action = "None"
 
@@ -1589,7 +1572,7 @@ def check_post_db(post_id):
             if post_match:
                 return "duplicate"
     except Exception as e:
-        logging.error(f"An error occurred: {e}")
+        logging.error("An error occurred: %s", e)
     return "error"
 
 
@@ -1605,7 +1588,7 @@ def add_post_to_db(post_id, poster_id, mod_action):
             return "added"
 
     except Exception as e:
-        logging.error(f"An error occurred: {e}")
+        logging.error("An error occurred: %s", e)
     return "error"
 
 
@@ -1630,9 +1613,9 @@ def broadcast_message(message):
                             message +
                             "\n\n --- \n *This is an automated message. To unsubscribe, please reply to this message with* `#unsubscribe`.",
                             public_id)
-                        time.sleep(0.2)
+                        time.sleep(0.1)
                 except Exception as e:
-                    logging.exception("Message failed to send to " + username)
+                    logging.exception("Message failed to send to %s", username)
     except sqlite3.Error as e:
         logging.error("SQLite error: %s", e)
 
@@ -1647,7 +1630,7 @@ def reject_user(user, rejection):
         result = execute_sql_query(conn, query, (user,))
 
         email = result[0]
-        logging.info("Rejection email sent to " + email)
+        logging.info("Rejection email sent to %s", email)
 
         message = MIMEMultipart()
         message['From'] = settings.SENDER_EMAIL
@@ -1665,9 +1648,9 @@ def reject_user(user, rejection):
             server.sendmail(settings.SENDER_EMAIL, email, message.as_string())
             logging.info("Rejection email sent successfully")
         except Exception as e:
-            logging.error("Error: Unable to send email.", str(e))
+            logging.error("Error: Unable to send email. %s", str(e))
         finally:
-            server.quit
+            server.quit()
 
 
 def broadcast_status(pm_sender, status):
@@ -1725,9 +1708,9 @@ def post_reports():
                     # report_reply = bot_strings.REPORT_REMOTE
 
             with connect_to_reports_db() as conn:
-                check_reports = '''SELECT report_id FROM post_reports WHERE report_id=?'''
+                match_reports = '''SELECT report_id FROM post_reports WHERE report_id=?'''
                 report_match = execute_sql_query(
-                    conn, check_reports, (report_id,))
+                    conn, match_reports, (report_id,))
 
                 if not report_match:
                     # tables: 'post_reports', '(report_id INT, reporter_id INT,
@@ -1743,14 +1726,7 @@ def post_reports():
                     execute_sql_query(conn, sqlite_insert_query, data_tuple)
 
                     if report_reply:
-                        lemmy.private_message.create(
-                            "Hello " +
-                            creator +
-                            ",\n\n" +
-                            report_reply +
-                            "\n \n" +
-                            bot_strings.PM_SIGNOFF,
-                            creator_id)
+                        lemmy.private_message.create(f"Hello {creator},\n\n{report_reply}\n \n{bot_strings.PM_SIGNOFF}", creator_id)
 
                     for word in serious_words:
                         if word in report_reason and settings.MATRIX_FLAG:
@@ -1796,9 +1772,9 @@ def comment_reports():
                     continue
 
             with connect_to_reports_db() as conn:
-                check_reports = '''SELECT report_id FROM comment_reports WHERE report_id=?'''
+                match_reports = '''SELECT report_id FROM comment_reports WHERE report_id=?'''
                 report_match = execute_sql_query(
-                    conn, check_reports, (report_id,))
+                    conn, match_reports, (report_id,))
 
                 if not report_match:
                     sqlite_insert_query = """INSERT INTO comment_reports (report_id, reporter_id, reporter_name, report_reason, comment_id) VALUES (?,?,?,?,?);"""
@@ -1812,14 +1788,8 @@ def comment_reports():
                     execute_sql_query(conn, sqlite_insert_query, data_tuple)
 
                     if report_reply:
-                        lemmy.private_message.create(
-                            "Hello " +
-                            creator +
-                            ",\n\n" +
-                            report_reply +
-                            "\n \n" +
-                            bot_strings.PM_SIGNOFF,
-                            reporter_id)
+                        lemmy.private_message.create(f"Hello {creator},\n\n{report_reply}\n \n{bot_strings.PM_SIGNOFF}", reporter_id)
+
 
                     for word in serious_words:
                         if word in report_reason and settings.MATRIX_FLAG:
@@ -1835,10 +1805,10 @@ def check_reports():
     comment_reports()
 
 
-def get_first_post_date(day, time, frequency):
+def get_first_post_date(pd_day, pd_time, pd_frequency):
     # Map days to integers
 
-    day = day.lower()
+    day = pd_day.lower()
 
     days = {
         'monday': 0,
@@ -1859,18 +1829,18 @@ def get_first_post_date(day, time, frequency):
         next_post_date = next_month + timedelta(days=days_until_next)
     else:
         days_until_next = (target_weekday - today_weekday + 7) % 7
-        if days_until_next == 0 and frequency != 'once':
+        if days_until_next == 0 and pd_frequency != 'once':
             frequency_mapping = {
                 'once': 0,
                 'weekly': 7,
                 'fortnightly': 14,
                 '4weekly': 28
             }
-            days_until_next = frequency_mapping.get(frequency, 7)
+            days_until_next = frequency_mapping.get(pd_frequency, 7)
 
         next_post_date = today + timedelta(days=days_until_next)
 
-    post_time = datetime.strptime(time, "%H:%M").time()
+    post_time = datetime.strptime(pd_time, "%H:%M").time()
     return datetime.combine(next_post_date.date(), post_time)
 
 
@@ -1905,8 +1875,6 @@ def check_scheduled_posts():
         cursor.execute(query)
         records = cursor.fetchall()
 
-        one_minute = timedelta(minutes=1)
-
         # Process each record
         for record in records:
             record_id, stored_time_str = record
@@ -1914,7 +1882,6 @@ def check_scheduled_posts():
             stored_datetime = stored_datetime.replace(tzinfo=timezone.utc)
 
             # check if the stored time is within 1 minute past current UTC
-            # if current_utc - one_minute < stored_datetime <= current_utc:
             if stored_datetime <= current_utc:
                 # Fetch the full row for the record_id
                 full_row_query = "SELECT * FROM com_posts WHERE pin_id = ?"
@@ -2018,7 +1985,7 @@ def log_warning(person_id, warning_message, admin):
             data_tuple = (person_id, warning_message, admin)
             execute_sql_query(conn, sqlite_insert_query, data_tuple)
     except Exception as e:
-        logging.info(f"Error logging warning: {e}")
+        logging.info("Error logging warning: %s", e)
         raise
 
 
@@ -2049,7 +2016,7 @@ def get_warning_count(person_id):
                 return result[0]
             return 0
     except Exception as e:
-        logging.info(f"Error retrieving warning count: {e}")
+        logging.info("Error retrieving warning count: %s", e)
         raise
 
 

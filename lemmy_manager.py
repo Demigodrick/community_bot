@@ -2,16 +2,16 @@ from pythorhead import Lemmy
 from config import settings
 
 # Global variable
-lemmy = None
+LEMMY = None
 
 def login():
-    global lemmy
-    lemmy = Lemmy("https://" + settings.INSTANCE, request_timeout=10)
-    lemmy.log_in(settings.USERNAME, settings.PASSWORD)
-    return lemmy
+    global LEMMY
+    LEMMY = Lemmy("https://" + settings.INSTANCE, request_timeout=10)
+    LEMMY.log_in(settings.USERNAME, settings.PASSWORD)
+    return LEMMY
 
 def get_lemmy_instance():
-    global lemmy
-    if lemmy is None:
+    global LEMMY
+    if LEMMY is None:
         login()
-    return lemmy
+    return LEMMY

@@ -57,7 +57,7 @@ MOD_ADVICE = (
 
 ## REPORTS ##
 REPORT_LOCAL = "Thanks for submitting a report. This is just a message to let you know the mods and admins have recieved this report. We'll check if the reported content breaks our [Code of Conduct](https://legal.lemmy.zip/posts/code_of_conduct/) and take action accordingly."
-REPORT_REMOTE = "Thanks for submitting a report. As this content is on Lemmy.zip, we'll check if it breaks our [Code of Conduct](https://legal.lemmy.zip/posts/code_of_conduct/) and take action accordinly. Your local admin(s) will also recieve a copy of this report."
+REPORT_REMOTE = "Thanks for submitting a report. As this content is on Lemmy.zip, we'll check if it breaks our [Code of Conduct](https://legal.lemmy.zip/posts/code_of_conduct/) and take action accordingly. Your local admin(s) will also recieve a copy of this report."
 
 # PM REPLIES
 INS_RULES = (

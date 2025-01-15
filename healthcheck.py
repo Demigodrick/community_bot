@@ -1,7 +1,7 @@
 import datetime
 import sys
 
-log_file_path = 'resources/zippy.log'
+LOG_FILE_PATH = 'resources/zippy.log'
 
 
 def check_last_log_timestamp(log_file):
@@ -34,7 +34,7 @@ def check_last_log_timestamp(log_file):
 
 
 if __name__ == "__main__":
-    if check_last_log_timestamp(log_file_path):
+    if check_last_log_timestamp(LOG_FILE_PATH):
         sys.exit(0)
     else:
         sys.exit(1)

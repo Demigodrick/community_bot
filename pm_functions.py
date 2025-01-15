@@ -1,20 +1,25 @@
+# Standard library imports
 import asyncio
-import bot_strings
 import logging
 import os
 import pytz
 import re
-import requests
 import sqlite3
 import time
 import toml
-from config import settings
+from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
-from datetime import datetime, timedelta, timezone
-from lemmy_manager import get_lemmy_instance
+
+# Third-party imports
+import feedparser
+import requests
 from pythorhead import Lemmy
 from pythorhead.types import SortType, ListingType, FeatureType
-import feedparser
+
+# Local imports
+from config import settings
+from lemmy_manager import get_lemmy_instance
+import bot_strings
 
 
 lemmy = get_lemmy_instance()
@@ -607,9 +612,7 @@ def pm_rss(
                 url_contains_filter,
                 url_excludes_filter,
                 title_contains_filter,
-                title_excludes_filter,
-                community,
-                tag)
+                title_excludes_filter)
             for post in posts:
                 insert_new_post(feed_id, post)
 
