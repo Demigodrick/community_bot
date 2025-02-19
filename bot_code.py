@@ -189,6 +189,24 @@ def check_dbs():
                 conn,
                 'entrants',
                 '(ticket_number INTEGER PRIMARY KEY AUTOINCREMENT, giveaway_id INTEGER, username TEXT, entry_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (giveaway_id) REFERENCES giveaways (giveaway_id), UNIQUE (giveaway_id, username))')
+            
+        with sqlite3.connect('resources/tags.db') as conn:
+            create_table(
+                conn,
+                'enforcement_rules',
+                """(id INTEGER PRIMARY KEY AUTOINCREMENT, enforcement_id INTEGER, community TEXT NOT NULL, tags TEXT NOT NULL, action_order INTEGER NOT NULL, action TEXT NOT NULL, duration INTEGER, message TEXT, FOREIGN KEY(enforcement_id) REFERENCES enforcement_sets(id))""")
+
+            create_table(
+                conn,
+                'enforcement_sets',
+                """(id INTEGER PRIMARY KEY AUTOINCREMENT, community TEXT, tags TEXT)""")
+            
+            create_table(
+                conn,
+                'enforcement_log',
+                """(id INTEGER PRIMARY KEY AUTOINCREMENT, post_id INTEGER NOT NULL, community TEXT NOT NULL, rule_id INTEGER NOT NULL, current_step INTEGER NOT NULL, next_action_due TIMESTAMP NOT NULL, FOREIGN KEY (rule_id) REFERENCES enforcement_rules(id))""")
+
+            
 
         logging.debug("All tables checked.")
 
@@ -233,6 +251,9 @@ def connect_to_giveaway_db():
 
 def connect_to_games_db():
     return sqlite3.connect('resources/games.db')
+
+def connect_to_tags_db():
+    return sqlite3.connect('resources/tags.db')
 
 def execute_sql_query(connection, query, params=()):
     with connection:
@@ -596,12 +617,12 @@ def check_pms():
 
         if pm_context in ["#unsubscribe", "#subscribe"]:
             status = "unsub" if pm_context == "#unsubscribe" else "sub"
-            pmf.pm_sub(pm_sender, status, pm_username, pm_id)
+            pmf.pm_sub(pm_sender, status, pm_username, pm_id, broadcast_status)
             continue
 
 
         if pm_context.split(" -")[0] == "#takeover":
-            pmf.pm_takeover(user_admin, pm_context, pm_id, pm_username)
+            pmf.pm_takeover(user_admin, pm_context, pm_id, pm_username, pm_sender)
             continue
 
         if pm_context.split(" ")[0] == "#vote":
@@ -695,6 +716,14 @@ def check_pms():
         if pm_context.split(" ")[0] == '#lock':
             pmf.pm_lock(user_admin, pm_context, pm_username, pm_id, send_matrix_message)
             continue
+        
+        if pm_context.split(" ")[0] == "#tagenforcer":
+            pmf.pm_tagenforcer(pm_username, pm_context, pm_sender, pm_id, store_enforcement)
+            continue
+        
+        if pm_context.split(" ")[0] == "#hide":
+            pmf.pm_hide(user_admin, pm_context, pm_sender, pm_id, pm_username, send_matrix_message)
+            continue
 
         # keep this at the bottom
         pmf.pm_notunderstood(pm_username, pm_sender, pm_id)
@@ -753,14 +782,9 @@ def get_new_users():
 
             # Check if the email is from a known spam domain
             if is_spam_email(email):
-                logging.info(
-                    "User " +
-                    username +
-                    " tried to register with a potential spam email: " +
-                    email)
+                logging.info("User %s tried to register with a potential spam email: %s", username, email)
 
-                matrix_body = "New user " + username + " (https://" + settings.INSTANCE + "/u/" + username + ") with ID " + str(
-                    public_user_id) + " has signed up with an email address that may be a temporary or spam email address: " + email
+                matrix_body = f"New user {username} (https://{settings.INSTANCE}/u/{username}) with ID {public_user_id} has signed up with an email address that may be a temporary or spam email address: {email}"
                 asyncio.run(send_matrix_message(matrix_body))
 
             if settings.EMAIL_FUNCTION:
@@ -1561,7 +1585,241 @@ def check_posts():
                 settings.INSTANCE + "/post/" + str(post_id) + ". - Please review urgently."
             asyncio.run(send_matrix_message(matrix_body))
             break
+        
+        # Check if the post is meant to have a tag and doesn't have one
+        with connect_to_tags_db() as conn:
+            cursor = conn.cursor()
+            # Check if the community has enforcement rules
+            cursor.execute('SELECT DISTINCT tags FROM enforcement_rules WHERE community = ?', (community_name,))
+            rows = cursor.fetchall()
 
+            if not rows:
+                continue
+            
+            # Get all required tags for this community
+            required_tags = set()
+            for row in rows:
+                required_tags.update(row[0].split(","))  # Convert stored comma-separated tags into a set
+            
+            # Check if any of the required tags are in the post title
+            if any(tag.lower() in post_title.lower() for tag in required_tags):
+                return  # Post complies, no action needed
+            
+            # If the post does not contain the required tags, log it for enforcement
+            log_tag_action(community_name, post_id)
+            
+def log_tag_action(community, post_id):
+    with connect_to_tags_db() as conn:
+        cursor = conn.cursor()
+
+        # Get the first enforcement action for this community
+        cursor.execute('''
+            SELECT enforcement_id, action_order, action, duration, message 
+            FROM enforcement_rules 
+            WHERE community = ?
+            ORDER BY action_order ASC
+            LIMIT 1
+        ''', (community,))
+        first_action = cursor.fetchone()
+
+        if not first_action:
+            return  # No actions defined, nothing to enforce
+
+        rule_id, action_order, action, duration, message = first_action
+        next_action_due = datetime.utcnow()  # Use current UTC time
+
+        # If first action is a 'wait', calculate the next action time based on the duration
+        if action == "wait" and duration:
+            next_action_due += timedelta(hours=int(duration))  # Add duration to the current time
+
+        # Log the first action (step 0) with the rule_id
+        cursor.execute('''
+            INSERT INTO enforcement_log (community, post_id, rule_id, current_step, next_action_due)
+            VALUES (?, ?, ?, ?, ?)
+        ''', (community, post_id, rule_id, 0, next_action_due))
+
+        conn.commit()
+
+        # Now, check if the next action is due
+        check_pending_enforcements()  # This will handle checking for the next due action
+
+
+
+def check_pending_enforcements():
+    
+    ### TODO ###
+    ### - remove function
+    ### - view function
+    ### - remove "print" statements
+    
+    
+    
+    with connect_to_tags_db() as conn:
+        cursor = conn.cursor()
+        
+        # Fetch all logs to check title status
+        cursor.execute('''
+            SELECT id, post_id, community, rule_id, current_step, next_action_due 
+            FROM enforcement_log''')  # Only get records where the action is due
+
+        logs = cursor.fetchall()
+
+        if not logs:
+            print("No pending enforcements.")
+            return
+
+        for log in logs:
+            log_id, post_id, community, rule_id, current_step, next_action_due = log
+
+            # **Step 1: Check if the post title has been updated with correct tags**
+            cursor.execute('SELECT DISTINCT tags FROM enforcement_rules WHERE community = ?', (community,))
+            rows = cursor.fetchall()
+
+            if not rows:
+                continue  # No enforcement rules for this community
+
+            post_title = lemmy.post.get(post_id)['post_view']['post']['name']
+            output = lemmy.comment.list(post_id=post_id)
+
+            # Get all required tags for this community
+            required_tags = set()
+            for row in rows:
+                required_tags.update(row[0].split(","))  # Convert stored comma-separated tags into a set
+            
+            # **If the post title now contains the required tags, delete the enforcement log**
+            if any(tag.lower() in post_title.lower() for tag in required_tags):
+                print(f"Post {post_id} in {community} now contains required tags. Deleting enforcement log.")
+                cursor.execute('DELETE FROM enforcement_log WHERE id = ?', (log_id,))
+                conn.commit()
+                comments = lemmy.comment.list(post_id=post_id)
+                for comment in comments:
+                    if comment['creator']['id'] == settings.BOT_ID:
+                        lemmy.comment.delete(comment['comment']['id'],deleted=True)
+                
+                continue  # Move on to the next log
+            
+        # Fetch all logs where the next action is due or overdue
+        cursor.execute('''
+            SELECT id, post_id, community, rule_id, current_step, next_action_due 
+            FROM enforcement_log
+            WHERE next_action_due <= ?
+        ''', (datetime.utcnow(),))  # Only get records where the action is due
+
+        pending_logs = cursor.fetchall()
+
+        if not pending_logs:
+            print("No pending enforcements.")
+            return
+
+        for log in pending_logs:
+            log_id, post_id, community, rule_id, current_step, next_action_due = log
+
+            # **Step 2: Fetch enforcement rule for this step**
+            cursor.execute('''
+                SELECT action_order, action, duration, message 
+                FROM enforcement_rules 
+                WHERE enforcement_id = ? AND action_order = ? 
+            ''', (rule_id, current_step))
+            rule = cursor.fetchone()
+
+            if not rule:
+                continue  # No rule found for this step, skip this log entry
+
+            action_order, action, duration, message = rule
+
+            # **Step 3: Execute enforcement action**
+            execute_enforcement(community, post_id, rule_id, current_step, duration, action, message)
+
+            # **Step 4: Determine next step**
+            next_step = current_step + 1
+
+            if action == 'wait':
+                next_action_due = datetime.utcnow() + timedelta(hours=duration)
+            else:
+                next_action_due = datetime.utcnow()
+
+            # **Step 5: Update enforcement log**
+            cursor.execute('''
+                UPDATE enforcement_log
+                SET current_step = ?, next_action_due = ?
+                WHERE id = ?
+            ''', (next_step, next_action_due, log_id))
+            conn.commit()
+
+            # **Step 6: Check if this is the last action in the sequence**
+            cursor.execute('SELECT COUNT(*) FROM enforcement_rules WHERE enforcement_id = ?', (rule_id,))
+            total_steps = cursor.fetchone()[0]
+
+            if next_step >= total_steps:
+                print(f"Final action for post {post_id} reached. Deleting log entry.")
+                cursor.execute('DELETE FROM enforcement_log WHERE id = ?', (log_id,))
+                conn.commit()
+  
+
+def execute_enforcement(community, post_id, rule_id, current_step, duration, action, message):
+    # This function will handle the enforcement action without touching the database.
+    if action == 'warn':
+        lemmy.comment.create(post_id, content=message)
+        print(f"Warning issued for post {post_id} in community {community}")
+        
+    elif action == 'remove':
+        # Perform the removal action
+        post = lemmy.post.get(post_id)
+        poster_id = post['post_view']['creator']['id']
+        poster_name = post['post_view']['creator']['name']
+        lemmy.private_message.create(f"{bot_strings.GREETING} {poster_name} - Your post has been removed from [{community}](/c/{community}@lemmy.zip) automatically due to not having the correct tags. You can resubmit your post, but please ensure you tag your post with the correct tags. /n/n {bot_strings.PM_SIGNOFF}", poster_id)
+        lemmy.post.remove(post_id, True)
+        print(f"Post {post_id} removed from community {community}.")
+        
+    elif action == 'wait':
+        # do nothing
+        print(f"Post {post_id} in community {community} will wait for {duration} hours.")
+        
+
+
+def store_enforcement(community, tags, steps):
+    with connect_to_tags_db() as conn:
+        cursor = conn.cursor()
+
+        # Check if an enforcement set already exists for the given community
+        cursor.execute('''
+            SELECT id FROM enforcement_sets WHERE community = ?
+        ''', (community,))
+        existing_set = cursor.fetchone()
+
+        if existing_set:
+            enforcement_id = existing_set[0]
+
+            # Delete existing enforcement rules related to this enforcement set
+            cursor.execute('''
+                DELETE FROM enforcement_rules WHERE enforcement_id = ?
+            ''', (enforcement_id,))
+
+            # Delete the enforcement set itself
+            cursor.execute('''
+                DELETE FROM enforcement_sets WHERE id = ?
+            ''', (enforcement_id,))
+
+        # Insert the new enforcement set
+        cursor.execute('''
+            INSERT INTO enforcement_sets (community, tags)
+            VALUES (?, ?)
+        ''', (community, ",".join(tags)))
+        enforcement_id = cursor.lastrowid  # Get the ID of the newly inserted enforcement set
+
+        # Insert the new enforcement rules
+        for step in steps:
+            action_type = step["action"]
+            action_order = step["order"]
+            duration = step.get("duration")  # May be None
+            message = step.get("message")  # May be None
+
+            cursor.execute('''
+                INSERT INTO enforcement_rules (enforcement_id, community, tags, action_order, action, duration, message)
+                VALUES (?, ?, ?, ?, ?, ?, ?)
+            ''', (enforcement_id, community, ",".join(tags), action_order, action_type, duration, message))
+
+        conn.commit()
 
 def check_post_db(post_id):
     try:
@@ -1823,7 +2081,7 @@ def get_first_post_date(pd_day, pd_time, pd_frequency):
     today_weekday = today.weekday()
     target_weekday = days[day]
 
-    if frequency == 'monthly':
+    if pd_frequency == 'monthly':
         next_month = today + relativedelta(months=1)
         days_until_next = (target_weekday - next_month.weekday() + 7) % 7
         next_post_date = next_month + timedelta(days=days_until_next)
@@ -2018,7 +2276,6 @@ def get_warning_count(person_id):
     except Exception as e:
         logging.info("Error retrieving warning count: %s", e)
         raise
-
 
 async def send_matrix_message(matrix_body):
     client = AsyncClient(settings.MATRIX_URL, settings.MATRIX_ACCOUNT)

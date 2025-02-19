@@ -2,13 +2,14 @@
 import asyncio
 import logging
 import os
+from datetime import datetime, timedelta
 import pytz
 import re
 import sqlite3
 import time
-import toml
 from datetime import datetime, timedelta
 from dateutil.relativedelta import relativedelta
+import shlex
 
 # Third-party imports
 import feedparser
@@ -43,7 +44,7 @@ def pm_help(user_admin, pm_username, pm_id, pm_sender):
     lemmy.private_message.mark_as_read(pm_id, True)
 
 
-def pm_sub(pm_sender, status, pm_username, pm_id):
+def pm_sub(pm_sender, status, pm_username, pm_id, broadcast_status):
     if broadcast_status(pm_sender, status) == "successful":
         message = bot_strings.UNSUB_MESSAGE if status == "unsub" else bot_strings.SUB_MESSAGE
         lemmy.private_message.create(
@@ -70,7 +71,9 @@ def pm_takeover(user_admin, pm_context, pm_id, pm_username, pm_sender):
         community_id = lemmy.discover_community(community_name)
 
         logging.info(
-            f"Request for community {community_name} to be transferred to {user_id}")
+            "Request for community %s to be transferred to %s", community_name, user_id
+        )
+
 
         if community_id is None:
             lemmy.private_message.create(
@@ -202,6 +205,8 @@ def pm_giveaway(user_admin, pm_id, pm_context, add_giveaway_thread):
     if user_admin:
         thread_id = pm_context.split(" ")[1]
         add_giveaway_thread(thread_id)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
     lemmy.private_message.mark_as_read(pm_id, True)
     return
 
@@ -1066,6 +1071,149 @@ def pm_lock(user_admin, pm_context, pm_username, pm_id, send_matrix_message):
     lemmy.private_message.mark_as_read(pm_id, True)
     return
 
+def pm_tagenforcer(pm_username, pm_context, pm_sender, pm_id, store_enforcement):
+    # Normalize quotes to avoid issues with special characters
+    command = pm_context.replace("“", '"').replace("”", '"')
+    tokens = shlex.split(command)
+    
+    lemmy.private_message.mark_as_read(pm_id, True)
+
+    # Check for a minimum number of tokens to form a valid command
+    if len(tokens) < 4:
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. Sorry, it doesn't look like your command was formatted correctly. Please try again! \n\n {bot_strings.PM_SIGNOFF}",
+            pm_sender
+        )
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    # Parse the command tokens
+    action = tokens[0]  # e.g., '#tagenforcer'
+    community = tokens[1]  # e.g., 'test'
+    raw_tags = tokens[2]  # e.g., '[Article],[News]'
+    tags = raw_tags.strip('{}').split(',')  # Clean up tags
+
+    steps = []
+    index = 3  # Start parsing from after community and tags
+    order = 0
+    next_action_due = datetime.utcnow()
+
+    while index < len(tokens):
+        current_token = tokens[index]
+
+        if current_token == ">":
+            # Skip over '>' token, which just separates actions
+            index += 1
+            continue
+
+        elif current_token == "warn":
+            # Handle the warn action
+            duration = None
+            message = None
+
+            # Check if there's a duration after "warn"
+            if index + 1 < len(tokens) and tokens[index + 1].endswith('h'):
+                duration = tokens[index + 1]  # e.g., '1h'
+                index += 1  # Move past the duration token
+
+            # Check if there's a message after "warn"
+            message_tokens = []
+            index += 1  # Move past "warn" itself
+            while index < len(tokens) and not tokens[index].startswith('>') and tokens[index] not in ['wait', 'remove']:
+                message_tokens.append(tokens[index])
+                index += 1  # Move past the message token
+            
+            message = ' '.join(message_tokens).strip('""')  # Join tokens for message and strip quotes
+            message = re.sub(r'\\n', '\n', message)  # Convert escaped newlines into actual newlines
+
+            # Validate that a message was actually provided
+            if not message.strip():  # Check for empty or whitespace-only messages
+                logging.info("No message found after warn action - rejecting")
+                lemmy.private_message.create(
+                    f"{bot_strings.GREETING} {pm_username}. Sorry, it doesn't look like your command was formatted correctly. Your warn command is missing the message required to warn the user! Please try again! \n\n {bot_strings.PM_SIGNOFF}",
+                    pm_sender
+                )
+                return
+
+            steps.append({
+                "order": order,
+                "action": "warn",
+                "duration": duration,
+                "message": message
+            })
+            order += 1
+
+
+        elif current_token == "wait":
+            # Ensure there is a next token and it follows the expected format (e.g., "24h")
+            if index + 1 < len(tokens) and re.fullmatch(r"\d+h", tokens[index + 1]):
+                duration = int(tokens[index + 1][:-1])  # Convert "24h" -> 24
+                next_action_due += timedelta(hours=duration)
+                index += 1  # Move past duration
+            else:
+                lemmy.private_message.create(
+                    f"{bot_strings.GREETING} {pm_username}. Sorry, it doesn't look like your command was formatted correctly. Your 'wait' command is missing a valid time format (e.g., 24h). Please try again!\n\n{bot_strings.PM_SIGNOFF}",
+                    pm_sender
+                )
+                return  # Stop execution if invalid
+
+            steps.append({
+                "order": order,
+                "action": "wait",
+                "duration": duration,
+                "message": None
+            })
+            order += 1
+            index += 1  # Move past duration
+
+        elif current_token == "remove":
+            # Handle the remove action
+            steps.append({
+                "order": order,
+                "action": "remove",
+                "duration": None,
+                "message": None
+            })
+            order += 1
+
+        index += 1  # Move to the next token
+
+    # Check user is a mod in the community
+    output = lemmy.community.get(name=community)
+    for moderator_info in output['moderators']:
+        if moderator_info['moderator']['id'] == pm_sender:
+            is_moderator = True
+            break
+        
+    if not is_moderator:
+        # if pm_sender is not a moderator, send a private message
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. As you are not the moderator of this community, you are not able to use this tool for it.\n\n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+      
+    store_enforcement(community, tags, steps)
+    
+def pm_hide(user_admin, pm_context, pm_sender, pm_id, pm_username, send_matrix_message):
+    lemmy.private_message.mark_as_read(pm_id, True)
+    parts = pm_context.split("#")
+    if len(parts) > 1 and parts[1].strip() == "hide":
+        community_id = parts[2].strip()
+        
+        if user_admin:
+            if community_id:
+                com_details = lemmy.community.get(id=community_id)
+                com_name = com_details['community_view']['community']['name']
+            
+                lemmy.community.hide(hidden=True, community_id=int(community_id))
+                logging.info(f"Community {com_name} hidden from All")
+                
+                matrix_body = f"{pm_username} has hidden community {community_id} from the All feed."
+                asyncio.run(send_matrix_message(matrix_body))
+                
+                return
+        return    
 
 def pm_notunderstood(pm_username, pm_sender, pm_id):
     lemmy.private_message.create(
