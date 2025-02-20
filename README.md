@@ -2,6 +2,7 @@
 
 ## About
 This bot works mainly by Users/Admins sending a PM to the bot account, and the bot will then process that PM. 
+Other functions are on a timer that fire off, or as a result of something else, i.e. sending a matrix message.
 Some of the admin functions are automatically run, you can set this schedule in the "main.py" file.
 
 ## Features

@@ -40,6 +40,7 @@ EMAIL_SUBJECT = "Thanks for signing up to Lemmy.zip!"
 WELCOME_MESSAGE = (
     "\n\n # Welcome to Lemmy.zip! \n\n Please take a moment to familiarise yourself with [our Welcome Post](https://lemmy.zip/post/43). (Text that looks like this is a clickable link!) \n\n"
     "This post has all the information you'll need to get started on Lemmy, so please have a **good read** first! \n\n"
+    "You might also find it useful to have a look at the [New to Lemmy](/c/newtolemmy@lemmy.ca) community for tips on getting started! \n\n"
     "Please also take a look at our rules, they are in the sidebar of this instance, or you can view them [here](https://legal.lemmy.zip/posts/code_of_conduct/), or I can send these to you at any time - just send me a message with `#rules`. \n \n"
     "If you're on a mobile device, you can [tap here](https://m.lemmy.zip) to go straight to our mobile site. \n \n"
     "Lemmy.zip is 100% funded by user donations, so if you are enjoying your time on Lemmy.zip please [consider donating](https://opencollective.com/lemmyzip).\n \n"
@@ -53,7 +54,7 @@ MOD_ADVICE = (
     "- Try posting a link to your community at [New Communities](/c/newcommunities@lemmy.world) and at [CommunityPromo](/c/communityPromo@lemmy.ca)\n"
     "- Your community is automatically part of the [Lemmy Federate](https://lemmy-federate.com/) project, so it is immediately shared to a bunch of other instances.\n"
     "- Ensure your community has some content. Users are more likely to subscribe if content is already available. (5 to 10 posts is usually a good start)\n"
-    "- There are a couple of mod tools you can use to support your community. You can see the details on our Mod Tools [by clicking here!](https://lemmy.zip/post/13514228) \n"
+    "- There are a couple of mod tools you can use to support your community. You can see the details on our Mod Tools [by clicking here!](/c/modtools@lemmy.zip) \n"
     "- Consistency is key - you need to post consistently and respond to others to keep engagement with your new community up.\n\n"
     "I hope this helps! \n \n")
 

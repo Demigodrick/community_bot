@@ -23,7 +23,7 @@ from disposable_email_domains import blocklist
 import bot_strings
 import pm_functions as pmf
 from config import settings
-from lemmy_manager import get_lemmy_instance
+from lemmy_manager import get_lemmy_instance, restart_bot
 from pythorhead import Lemmy
 from pythorhead.types import SortType, ListingType, FeatureType
 
@@ -545,7 +545,7 @@ def clear_notifications():
         all_notifs = notif['replies']
     except BaseException:
         logging.info("Error with connection, retrying...")
-        get_lemmy_instance()
+        restart_bot()
         return
 
     for notif in all_notifs:
@@ -560,6 +560,7 @@ def check_pms():
     except BaseException:
         logging.info(
             "Error with connection, skipping checking private messages...")
+        restart_bot()
         return
 
     for pm_data in private_messages:
@@ -757,11 +758,11 @@ def is_spam_email(email):
 
 def get_new_users():
     try:
-        output = lemmy.admin.list_applications(unread_only="true")
+        output = lemmy.admin.list_applications()
         new_apps = output['registration_applications']
     except BaseException:
         logging.info("Error with connection, retrying...")
-        get_lemmy_instance()
+        restart_bot()
         return
 
     for output in new_apps:
@@ -845,7 +846,7 @@ def get_communities():
 
     except BaseException:
         logging.info("Error with connection, retrying...")
-        get_lemmy_instance()
+        restart_bot()
         return
 
     for communities in local_comm:
