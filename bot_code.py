@@ -6,6 +6,7 @@ import re
 import smtplib
 import sqlite3
 import time
+import psycopg2
 from datetime import datetime, timedelta, timezone
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
@@ -731,7 +732,7 @@ def check_pms():
  
 def is_spam_email(email):
 
-    suspicious_keywords = {"seo", "info", "sales", "media"}
+    suspicious_keywords = {"seo", "info", "sales", "media", "news"}
 
     # Count the number of digits in the email
     num_count = sum(char.isdigit() for char in email)
@@ -744,10 +745,14 @@ def is_spam_email(email):
 
     contains_suspicious_keyword = any(
         keyword in local_part.lower() for keyword in suspicious_keywords)
+    
+    # Count the number of dots in the local part
+    dot_count = local_part.count('.')
 
     # Check if the email is spam based on the number of digits or if the
     # domain is a known spam domain
-    return num_count > 2 or domain in blocklist or contains_suspicious_keyword
+    return num_count > 4 or dot_count > 1 or domain in blocklist or contains_suspicious_keyword
+
 
 
 def get_new_users():
@@ -789,6 +794,8 @@ def get_new_users():
 
             if settings.EMAIL_FUNCTION:
                 welcome_email(email)
+                
+            insert_block(public_user_id)
 
         continue
 
@@ -2305,3 +2312,38 @@ def ordinal(n):
     else:
         suffix = {1: 'st', 2: 'nd', 3: 'rd'}.get(n % 10, 'th')
     return str(n) + suffix
+
+def insert_block(person_id):
+    
+    if settings.DEFAULT_INSTANCE_BLOCKS:
+        instance_blocks_list = [int(x) for x in settings.DEFAULT_INSTANCE_BLOCKS.split(',')]
+    else:
+        instance_blocks_list = []
+    
+    published = datetime.utcnow()
+    
+    try:    
+        conn = psycopg2.connect(host=settings.DB_HOST, port=settings.DB_PORT, user=settings.DB_USER, password=settings.DB_PASSWORD, dbname=settings.DB_NAME)
+        conn.autocommit = False  # Enable transaction handling
+        cursor = conn.cursor()
+
+        for instance_id in instance_blocks_list:
+            # Insert new record
+            cursor.execute(
+                """
+                INSERT INTO instance_block (person_id, instance_id, published)
+                VALUES (%s, %s, %s);
+                """,
+                (person_id, instance_id, published),
+            )
+
+        conn.commit()  # Commit transaction
+        logging.info("New record inserted successfully!")
+
+    except psycopg2.Error as e:
+        conn.rollback()  # Rollback if an error occurs
+        logging.info(f"Database error: {e}")
+
+    finally:
+        cursor.close()
+        conn.close()

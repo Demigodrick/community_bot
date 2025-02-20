@@ -39,13 +39,15 @@ SUB_ERROR = "Sorry, something went wrong with your request :( \n\n Please messag
 EMAIL_SUBJECT = "Thanks for signing up to Lemmy.zip!"
 WELCOME_MESSAGE = (
     "\n\n # Welcome to Lemmy.zip! \n\n Please take a moment to familiarise yourself with [our Welcome Post](https://lemmy.zip/post/43). (Text that looks like this is a clickable link!) \n\n"
-    "This post has all the information you'll need to get started on Lemmy, so please have a good read first! \n\n"
+    "This post has all the information you'll need to get started on Lemmy, so please have a **good read** first! \n\n"
     "Please also take a look at our rules, they are in the sidebar of this instance, or you can view them [here](https://legal.lemmy.zip/posts/code_of_conduct/), or I can send these to you at any time - just send me a message with `#rules`. \n \n"
     "If you're on a mobile device, you can [tap here](https://m.lemmy.zip) to go straight to our mobile site. \n \n"
     "Lemmy.zip is 100% funded by user donations, so if you are enjoying your time on Lemmy.zip please [consider donating](https://opencollective.com/lemmyzip).\n \n"
     "Want to change the theme of the site? You can go to your [profile settings](https://lemmy.zip/settings) (or click the dropdown by your username and select Settings) and scroll down to theme. You'll find a list of themes you can try out and see which one you like the most! \n \n"
     "You can also set a Display Name that is different from your account username by updating the Display Name field. By default, your Display Name will show up to other users as `@your_username`, but by updating this field it will become whatever you want it to be! \n \n"
-    "If you'd like more help, please reply to this message with `#help` for a list of things I can help with. \n \n")
+    "Finally, we've set your account up with some blocks in place. We do this to help you settle in to Lemmy. You can find more details (and how to turn this off) in the [Welcome Post](https://lemmy.zip/post/43). \n\n"
+    "If you'd like more help, please reply to this message with `#help` for a list of things I can help with. \n\n"
+    "--- \n \n")
 MOD_ADVICE = (
     "Here are some tips for getting users to subscribe to your new community!\n"
     "- Try posting a link to your community at [New Communities](/c/newcommunities@lemmy.world) and at [CommunityPromo](/c/communityPromo@lemmy.ca)\n"

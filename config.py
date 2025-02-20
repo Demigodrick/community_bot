@@ -22,12 +22,17 @@ class Settings(BaseSettings):
     MATRIX_ROOM_ID: str
     MATRIX_URL: str
     MATRIX_ACCOUNT: str
-    ADMIN_ID: str
     RSS_ENABLED: bool
     GIVEAWAY_ENABLED: bool
     DEBUG_LEVEL: str
     STARTUP_WARNING: bool
-
+    DB_NAME: str
+    DB_USER: str
+    DB_PASSWORD: str
+    DB_HOST: str
+    DB_PORT: int
+    DEFAULT_INSTANCE_BLOCKS: str
+    
     class Config:
         env_file = ".env"
 
