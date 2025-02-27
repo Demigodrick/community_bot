@@ -768,8 +768,11 @@ def get_new_users():
     for output in new_apps:
         local_user_id = output['registration_application']['local_user_id']
         username = output['creator']['name']
-        email = output['creator_local_user']['email']
+        email = output['creator_local_user'].get('email')
         public_user_id = output['creator_local_user']['person_id']
+        
+        if email is None:
+            continue
 
         if update_registration_db(
                 local_user_id,
@@ -1673,7 +1676,7 @@ def check_pending_enforcements():
         logs = cursor.fetchall()
 
         if not logs:
-            print("No pending enforcements.")
+            logging.info("No pending enforcements.")
             return
 
         for log in logs:

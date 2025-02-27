@@ -1194,6 +1194,7 @@ def pm_tagenforcer(pm_username, pm_context, pm_sender, pm_id, store_enforcement)
         return
       
     store_enforcement(community, tags, steps)
+    logging.info(f"New tags added to {community} community")
     
 def pm_hide(user_admin, pm_context, pm_sender, pm_id, pm_username, send_matrix_message):
     lemmy.private_message.mark_as_read(pm_id, True)

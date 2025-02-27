@@ -47,6 +47,7 @@ WELCOME_MESSAGE = (
     "Want to change the theme of the site? You can go to your [profile settings](https://lemmy.zip/settings) (or click the dropdown by your username and select Settings) and scroll down to theme. You'll find a list of themes you can try out and see which one you like the most! \n \n"
     "You can also set a Display Name that is different from your account username by updating the Display Name field. By default, your Display Name will show up to other users as `@your_username`, but by updating this field it will become whatever you want it to be! \n \n"
     "Finally, we've set your account up with some blocks in place. We do this to help you settle in to Lemmy. You can find more details (and how to turn this off) in the [Welcome Post](https://lemmy.zip/post/43). \n\n"
+    "PS - We also have a Mastodon server. Not already on Mastodon? [Join us here!](https://mastodon.zip/invite/NsRaEdjM) \n\n"
     "If you'd like more help, please reply to this message with `#help` for a list of things I can help with. \n\n"
     "--- \n \n")
 MOD_ADVICE = (
