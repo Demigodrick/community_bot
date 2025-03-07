@@ -543,10 +543,19 @@ def clear_notifications():
     try:
         notif = lemmy.comment.get_replies(True, 1)
         all_notifs = notif['replies']
-    except BaseException:
-        logging.info("Error with connection, retrying...")
-        restart_bot()
+    except requests.exceptions.ConnectionError:
+        logging.info(
+            "Error with connection, skipping checking clearing notifications...")
         return
+    except (requests.exceptions.Timeout, requests.exceptions.ReadTimeout):
+        logging.info("Error with Timeout - pausing bot for 30 seconds...")
+        time.sleep(30)
+        return
+    except requests.exceptions.HTTPError:
+        logging.info("Error with HTTP connection, restarting bot...")
+        restart_bot()    
+        return
+
 
     for notif in all_notifs:
         reply_id = notif['comment_reply']['id']
@@ -555,12 +564,25 @@ def clear_notifications():
 def check_pms():
     try:
         pm = lemmy.private_message.list(True, 1)
+        
+        if pm is None:
+            logging.info("No data received from private message API. Skipping...")
+            return
 
-        private_messages = pm['private_messages']
-    except BaseException:
-        logging.info(
-            "Error with connection, skipping checking private messages...")
-        restart_bot()
+        private_messages = pm.get('private_messages', [])
+
+    except (requests.exceptions.Timeout, requests.exceptions.ReadTimeout):
+        logging.info("Error with Timeout - pausing bot for 30 seconds...")
+        time.sleep(30)
+        return
+
+    except requests.exceptions.ConnectionError:
+        logging.info("Error with connection, skipping checking private messages...")
+        return
+
+    except requests.exceptions.HTTPError:
+        logging.info("Error with HTTP connection, restarting bot...")
+        restart_bot()    
         return
 
     for pm_data in private_messages:
@@ -760,10 +782,19 @@ def get_new_users():
     try:
         output = lemmy.admin.list_applications()
         new_apps = output['registration_applications']
-    except BaseException:
-        logging.info("Error with connection, retrying...")
-        restart_bot()
+    except requests.exceptions.ConnectionError:
+        logging.info(
+            "Error with connection, skipping checking new applications...")
         return
+    except (requests.exceptions.Timeout, requests.exceptions.ReadTimeout):
+        logging.info("Error with Timeout - pausing bot for 30 seconds...")
+        time.sleep(30)
+        return
+    except requests.exceptions.HTTPError:
+        logging.info("Error with HTTP connection, restarting bot...")
+        restart_bot()    
+        return
+
 
     for output in new_apps:
         local_user_id = output['registration_application']['local_user_id']
@@ -847,10 +878,19 @@ def get_communities():
             limit=5, page=1, sort=SortType.New, type_=ListingType.Local)
         local_comm = communities
 
-    except BaseException:
-        logging.info("Error with connection, retrying...")
-        restart_bot()
+    except requests.exceptions.ConnectionError:
+        logging.info(
+            "Error with connection, skipping getting communities...")
         return
+    except (requests.exceptions.Timeout, requests.exceptions.ReadTimeout):
+        logging.info("Error with Timeout - pausing bot for 30 seconds...")
+        time.sleep(30)
+        return
+    except requests.exceptions.HTTPError:
+        logging.info("Error with HTTP connection, restarting bot...")
+        restart_bot()    
+        return
+
 
     for communities in local_comm:
         community_id = communities['community']['id']
@@ -2342,7 +2382,7 @@ def insert_block(person_id):
             )
 
         conn.commit()  # Commit transaction
-        logging.info("New record inserted successfully!")
+        logging.info("Default block inserted successfully!")
 
     except psycopg2.Error as e:
         conn.rollback()  # Rollback if an error occurs

@@ -19,5 +19,5 @@ def get_lemmy_instance():
     return LEMMY
 
 def restart_bot():
-    time.sleep(2) 
+    time.sleep(15) 
     sys.exit(1)  
