@@ -133,6 +133,12 @@ def check_dbs():
                 conn,
                 'warnings',
                 '(user_id INT, warning_reason TEXT, admin TEXT)')
+            
+            # create or check pm spam table
+            create_table(
+                conn,
+                'pm_spam',
+                '(id INTEGER PRIMARY KEY AUTOINCREMENT, phrase TEXT NOT NULL)')
 
             # create or check rss tables
         with sqlite3.connect('resources/rss.db') as conn:
@@ -207,6 +213,12 @@ def check_dbs():
                 'enforcement_log',
                 """(id INTEGER PRIMARY KEY AUTOINCREMENT, post_id INTEGER NOT NULL, community TEXT NOT NULL, rule_id INTEGER NOT NULL, current_step INTEGER NOT NULL, next_action_due TIMESTAMP NOT NULL, FOREIGN KEY (rule_id) REFERENCES enforcement_rules(id))""")
 
+        
+        with sqlite3.connect('resources/welcome/bus.db') as conn:
+            create_table(
+                conn,
+                'pm_scan_messages',
+                """(id INTEGER PRIMARY KEY, bot_sender TEXT, pm_id INT, pm_sender INT, pm_content TEXT)""")
             
 
         logging.debug("All tables checked.")
@@ -255,6 +267,9 @@ def connect_to_games_db():
 
 def connect_to_tags_db():
     return sqlite3.connect('resources/tags.db')
+
+def connect_to_message_bus_db():
+    return sqlite3.connect('resources/welcome/bus.db')
 
 def execute_sql_query(connection, query, params=()):
     with connection:
@@ -748,6 +763,9 @@ def check_pms():
         if pm_context.split(" ")[0] == "#hide":
             pmf.pm_hide(user_admin, pm_context, pm_sender, pm_id, pm_username, send_matrix_message)
             continue
+        
+        if pm_context.split(" ")[0] == "#spam_add":
+            pmf.pm_spam_add(user_admin, pm_context, pm_sender, pm_id, pm_username, add_pm_spam_phrase)
 
         # keep this at the bottom
         pmf.pm_notunderstood(pm_username, pm_sender, pm_id)
@@ -755,7 +773,7 @@ def check_pms():
  
 def is_spam_email(email):
 
-    suspicious_keywords = {"seo", "info", "sales", "media", "news"}
+    suspicious_keywords = {"seo", "info", "sales", "media", "news", "marketing"}
 
     # Count the number of digits in the email
     num_count = sum(char.isdigit() for char in email)
@@ -781,20 +799,28 @@ def is_spam_email(email):
 def get_new_users():
     try:
         output = lemmy.admin.list_applications()
-        new_apps = output['registration_applications']
+
+        # Ensure output is not None before accessing it
+        if not output:
+            logging.error("Received None from API, skipping and backing off...")
+            time.sleep(30)
+            return
+        
+        if "error" in output and output["error"] == "rate_limit_error":
+            logging.warning("Rate limit hit, sleeping for 60 seconds...")
+            time.sleep(60)
+            return
+
+        new_apps = output.get('registration_applications', [])
+
     except requests.exceptions.ConnectionError:
-        logging.info(
-            "Error with connection, skipping checking new applications...")
-        return
+        logging.info("Error with connection, skipping checking new applications...")
     except (requests.exceptions.Timeout, requests.exceptions.ReadTimeout):
         logging.info("Error with Timeout - pausing bot for 30 seconds...")
         time.sleep(30)
-        return
     except requests.exceptions.HTTPError:
         logging.info("Error with HTTP connection, restarting bot...")
-        restart_bot()    
-        return
-
+        restart_bot()
 
     for output in new_apps:
         local_user_id = output['registration_application']['local_user_id']
@@ -2391,3 +2417,95 @@ def insert_block(person_id):
     finally:
         cursor.close()
         conn.close()
+        
+def remove_spam_message(pm_id):
+    modified_content = "[Removed By Admin] - This message was likely spam. For queries please contact a member of the Admin team."
+    
+    try:
+        with psycopg2.connect(
+            host=settings.DB_HOST,
+            port=settings.DB_PORT,
+            user=settings.DB_USER,
+            password=settings.DB_PASSWORD,
+            dbname=settings.DB_NAME
+        ) as conn:
+            with conn.cursor() as cursor:
+                update_query = "UPDATE private_message SET content = %s WHERE id = %s;"
+                cursor.execute(update_query, (modified_content, pm_id))
+                
+                logging.info(f"PM {pm_id} marked as spam and content updated.")
+            conn.commit()
+
+    except psycopg2.Error as e:
+        logging.error(f"Database error: {e}")
+
+            
+def scan_private_message(pm_context, creator_id):
+    spam_flag = False
+    try:
+        with connect_to_mod_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("SELECT phrase FROM pm_spam;")
+            keywords = [row[0] for row in cursor.fetchall()]
+    
+        for keyword in keywords:
+            if keyword.lower() in pm_context.lower():
+                spam_flag = True
+                break
+
+        if spam_flag:
+            get_user = lemmy.user.get(creator_id)
+            if not get_user:
+                logging.error(f"Failed to fetch user data for ID {creator_id}")
+                return "notspam"
+
+            name = get_user['person_view']['person']['name']
+            instance = get_user['site']['actor_id'].removeprefix("https://").rstrip("/")
+
+            user_url = f"https://{settings.INSTANCE}/u/{name}@{instance}"
+
+            logging.info(f"Account likely spam posting - {user_url}. Will ban.")
+            lemmy.user.ban(ban=True, person_id=creator_id, reason="Automod Ban - Identified as a spam account", remove_data=True)
+
+            matrix_body = f"Account likely a spam account, banning: {user_url}"
+            asyncio.run(send_matrix_message(matrix_body))
+            return "spam"
+
+    except Exception as e:
+        logging.error(f"Error scanning private message: {e}")
+
+    return "notspam"
+
+
+def add_pm_spam_phrase(spam_phrase):
+    try:
+        with connect_to_mod_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("INSERT OR IGNORE INTO pm_spam (phrase) VALUES (?);", (spam_phrase,))
+            conn.commit()
+            logging.info(f"Spam phrase '{spam_phrase}' added successfully.")
+            matrix_body = f"New spam phrase added to PM Scanner: {spam_phrase}"
+            asyncio.run(send_matrix_message(matrix_body))
+            
+    except sqlite3.Error as e:
+        logging.error(f"Error adding spam phrase: {e}")
+
+def check_message_bus():
+    with connect_to_message_bus_db() as conn:
+        cursor = conn.cursor()
+        cursor.execute("SELECT * FROM pm_scan_messages ORDER BY id LIMIT 1")
+        pm_object = cursor.fetchone()
+
+        if not pm_object:
+            return
+
+        bus_id, bot_sender, pm_id, pm_sender, pm_content = pm_object
+        logging.info(f"Message on pm bus - ID:{bus_id}")
+
+        cursor.execute("DELETE FROM pm_scan_messages WHERE id = ?", (bus_id,))
+        conn.commit()
+
+        if scan_private_message(pm_content, pm_sender) == "spam":
+            remove_spam_message(pm_id)
+        
+

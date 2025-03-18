@@ -1214,7 +1214,18 @@ def pm_hide(user_admin, pm_context, pm_sender, pm_id, pm_username, send_matrix_m
                 asyncio.run(send_matrix_message(matrix_body))
                 
                 return
-        return    
+        return   
+            
+def pm_spam_add(user_admin, pm_context, pm_sender, pm_id, pm_username, add_pm_spam_phrase):
+    lemmy.private_message.mark_as_read(pm_id, True)
+    parts = pm_context.split("#")
+    if len(parts) > 1 and parts[1].strip() == "spam_add":
+        spam_phrase = parts[2].strip()
+        if user_admin:
+            add_pm_spam_phrase(spam_phrase)
+            return
+            
+    return
 
 def pm_notunderstood(pm_username, pm_sender, pm_id):
     lemmy.private_message.create(

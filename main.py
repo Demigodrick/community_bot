@@ -8,7 +8,8 @@ from config import settings
 from bot_code import (
     check_pms, check_dbs, get_new_users, get_communities, steam_deals, 
     check_comments, check_posts, check_reports, check_scheduled_posts, 
-    clear_notifications, RSS_feed, check_version, check_pending_enforcements
+    clear_notifications, RSS_feed, check_version, check_pending_enforcements,
+    check_message_bus
 )
 
 # Call login function
@@ -30,6 +31,7 @@ if __name__ == "__main__":
 
     # seconds
     schedule.every(5).seconds.do(check_pms)
+    schedule.every(5).seconds.do(check_message_bus)
     schedule.every(10).seconds.do(get_new_users)
     schedule.every(30).seconds.do(get_communities)
     schedule.every(30).seconds.do(check_reports)
