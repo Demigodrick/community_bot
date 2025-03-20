@@ -1223,9 +1223,6 @@ def pm_spam_add(user_admin, pm_context, pm_sender, pm_id, pm_username, add_pm_sp
         spam_phrase = parts[2].strip()
         if user_admin:
             add_pm_spam_phrase(spam_phrase)
-            return
-            
-    return
 
 def pm_notunderstood(pm_username, pm_sender, pm_id):
     lemmy.private_message.create(

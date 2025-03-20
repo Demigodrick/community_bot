@@ -2418,40 +2418,33 @@ def insert_block(person_id):
         cursor.close()
         conn.close()
         
-def remove_spam_message(pm_id):
-    modified_content = "[Removed By Admin] - This message was likely spam. For queries please contact a member of the Admin team."
-    
-    try:
-        with psycopg2.connect(
-            host=settings.DB_HOST,
-            port=settings.DB_PORT,
-            user=settings.DB_USER,
-            password=settings.DB_PASSWORD,
-            dbname=settings.DB_NAME
-        ) as conn:
-            with conn.cursor() as cursor:
-                update_query = "UPDATE private_message SET content = %s WHERE id = %s;"
-                cursor.execute(update_query, (modified_content, pm_id))
-                
-                logging.info(f"PM {pm_id} marked as spam and content updated.")
-            conn.commit()
-
-    except psycopg2.Error as e:
-        logging.error(f"Database error: {e}")
-
-            
+           
 def scan_private_message(pm_context, creator_id):
     spam_flag = False
+    ban_flag = False
+    is_admin = False
+    
+    ZERO_WIDTH_CHARS = re.compile(r'[\u200B\u200C\u200D\u200E\u200F\uFEFF]')
+    pm_context = ZERO_WIDTH_CHARS.sub('', pm_context).lower()
+     
     try:
+        # get spam phrases from db
         with connect_to_mod_db() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT phrase FROM pm_spam;")
-            keywords = [row[0] for row in cursor.fetchall()]
-    
-        for keyword in keywords:
-            if keyword.lower() in pm_context.lower():
-                spam_flag = True
-                break
+            keywords = {row[0].lower() for row in cursor.fetchall()}
+            
+        # spam check 1
+        if any(keyword in pm_context for keyword in keywords):
+            spam_flag = True
+            ban_flag = True
+            
+        # spam check 2
+        url_count = pm_context.replace(' ', '').count("http")
+        if url_count >= 2:
+            # warn don't ban
+            spam_flag = True
+            ban_flag = False      
 
         if spam_flag:
             get_user = lemmy.user.get(creator_id)
@@ -2461,15 +2454,29 @@ def scan_private_message(pm_context, creator_id):
 
             name = get_user['person_view']['person']['name']
             instance = get_user['site']['actor_id'].removeprefix("https://").rstrip("/")
+            is_admin = get_user['person_view']['is_admin']
+            
+            if is_admin:
+                return "notspam"
 
             user_url = f"https://{settings.INSTANCE}/u/{name}@{instance}"
+            
+            if ban_flag:
+                logging.info(f"Account likely spam posting - {user_url}. Will ban.")
+                lemmy.user.ban(ban=True, person_id=creator_id, reason="Automod Ban - Identified as a spam account", remove_data=True)
 
-            logging.info(f"Account likely spam posting - {user_url}. Will ban.")
-            lemmy.user.ban(ban=True, person_id=creator_id, reason="Automod Ban - Identified as a spam account", remove_data=True)
-
-            matrix_body = f"Account likely a spam account, banning: {user_url}"
-            asyncio.run(send_matrix_message(matrix_body))
-            return "spam"
+                matrix_body = f"Account likely a spam account, banning: {user_url}"
+                asyncio.run(send_matrix_message(matrix_body))
+                return "spam"
+            else:
+                logging.info(f"Account possibly spam, warning admin team - {user_url}")
+                matrix_body = f"Account possibly a spam account, manual review required: {user_url}"
+                asyncio.run(send_matrix_message(matrix_body))
+                time.sleep(1)
+                matrix_body = f"PM Content: \n\n {pm_context}"
+                asyncio.run(send_matrix_message(matrix_body))
+                return "spam"
+                
 
     except Exception as e:
         logging.error(f"Error scanning private message: {e}")
@@ -2505,7 +2512,5 @@ def check_message_bus():
         cursor.execute("DELETE FROM pm_scan_messages WHERE id = ?", (bus_id,))
         conn.commit()
 
-        if scan_private_message(pm_content, pm_sender) == "spam":
-            remove_spam_message(pm_id)
-        
+        scan_private_message(pm_content, pm_sender)
 
