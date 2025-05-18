@@ -8,6 +8,7 @@ LEMMY = None
 
 def login():
     global LEMMY
+     
     LEMMY = Lemmy("https://" + settings.INSTANCE, request_timeout=10)
     LEMMY.log_in(settings.USERNAME, settings.PASSWORD)
     return LEMMY

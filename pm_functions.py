@@ -914,6 +914,7 @@ def pm_reject(pm_context, pm_sender, pm_username, pm_id, reject_user):
         if pm_sender == 9532930:
             user = parts[2].strip()
             rejection = parts[3].strip()
+            #added in lemmy 0.19.11
             reject_user(user, rejection)
             lemmy.private_message.mark_as_read(pm_id, True)
             return

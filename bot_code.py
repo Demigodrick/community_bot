@@ -11,6 +11,7 @@ from datetime import datetime, timedelta, timezone
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
+from collections import defaultdict
 
 import feedparser
 import pytz
@@ -56,6 +57,9 @@ logger.addHandler(file_handler)
 logger.addHandler(stream_handler)
 
 logging.info("Log level set to %s", settings.DEBUG_LEVEL)
+
+# Short term memory PM scanning
+recent_messages = defaultdict(list)
 
 def create_table(conn, table_name, table_definition):
     curs = conn.cursor()
@@ -1964,29 +1968,32 @@ def reject_user(user, rejection):
         query = "SELECT email from users WHERE local_user_id = ?"
         result = execute_sql_query(conn, query, (user,))
 
-        email = result[0]
-        logging.info("Rejection email sent to %s", email)
+        if result:
+            email = result[0]
+            logging.info("Rejection email sent to %s", email)
 
-        message = MIMEMultipart()
-        message['From'] = settings.SENDER_EMAIL
-        message['To'] = email
-        message['Subject'] = "Lemmy.zip - Application Rejected"
+            message = MIMEMultipart()
+            message['From'] = settings.SENDER_EMAIL
+            message['To'] = email
+            message['Subject'] = "Lemmy.zip - Application Rejected"
 
-        # use this for a simple text email, uncomment below:
-        body = "We've rejected your Lemmy.zip application. In order to create an inclusive, active, and spam-free Lemmy instance, we manually review each application. If you think this was a mistake, please email us at hello@lemmy.zip from the email address you created your account with and make sure to include your username, and we'll take a look. \n\n Your account was rejected for the following reason: " + rejection
-        message.attach(MIMEText(body, 'plain'))
+            # use this for a simple text email, uncomment below:
+            body = "We've rejected your Lemmy.zip application. In order to create an inclusive, active, and spam-free Lemmy instance, we manually review each application. If you think this was a mistake, please email us at hello@lemmy.zip from the email address you created your account with and make sure to include your username, and we'll take a look. \n\n Your account was rejected for the following reason: " + rejection
+            message.attach(MIMEText(body, 'plain'))
 
-        try:
-            server = smtplib.SMTP(settings.SMTP_SERVER, settings.SMTP_PORT)
-            server.starttls()
-            server.login(settings.SENDER_EMAIL, settings.SENDER_PASSWORD)
-            server.sendmail(settings.SENDER_EMAIL, email, message.as_string())
-            logging.info("Rejection email sent successfully")
-        except Exception as e:
-            logging.error("Error: Unable to send email. %s", str(e))
-        finally:
-            server.quit()
-
+            try:
+                server = smtplib.SMTP(settings.SMTP_SERVER, settings.SMTP_PORT)
+                server.starttls()
+                server.login(settings.SENDER_EMAIL, settings.SENDER_PASSWORD)
+                server.sendmail(settings.SENDER_EMAIL, email, message.as_string())
+                logging.info("Rejection email sent successfully")
+            except Exception as e:
+                logging.error("Error: Unable to send email. %s", str(e))
+            finally:
+                server.quit()
+        
+        else:
+            logging.warning("No email found for user ID %s", user)
 
 def broadcast_status(pm_sender, status):
     with connect_to_users_db() as conn:
@@ -2423,28 +2430,39 @@ def scan_private_message(pm_context, creator_id):
     spam_flag = False
     ban_flag = False
     is_admin = False
-    
+    now = time.time()  # Current timestamp
+
+    # Clean message of zero-width characters
     ZERO_WIDTH_CHARS = re.compile(r'[\u200B\u200C\u200D\u200E\u200F\uFEFF]')
     pm_context = ZERO_WIDTH_CHARS.sub('', pm_context).lower()
-     
+    
     try:
-        # get spam phrases from db
+        # Get spam phrases from DB
         with connect_to_mod_db() as conn:
             cursor = conn.cursor()
             cursor.execute("SELECT phrase FROM pm_spam;")
             keywords = {row[0].lower() for row in cursor.fetchall()}
-            
-        # spam check 1
+        
+        # Spam check 1: Keyword detection
         if any(keyword in pm_context for keyword in keywords):
             spam_flag = True
             ban_flag = True
-            
-        # spam check 2
-        url_count = pm_context.replace(' ', '').count("http")
-        if url_count >= 2:
-            # warn don't ban
-            spam_flag = True
-            ban_flag = False      
+        
+        # Spam check 2: URL count
+        if not spam_flag:
+            url_count = pm_context.replace(' ', '').count("http")
+            if url_count >= 2:
+                spam_flag = True
+                ban_flag = False  # Warn, don't ban
+
+                # **Short-Term Memory Check**
+                recent_messages[creator_id].append(now)
+                recent_messages[creator_id] = [t for t in recent_messages[creator_id] if now - t <= 120]
+
+                if len(recent_messages[creator_id]) >= 3:
+                    spam_flag = True
+                    ban_flag = True
+                    logging.info(f"User {creator_id} flagged for rapid spam.")
 
         if spam_flag:
             get_user = lemmy.user.get(creator_id)
@@ -2454,13 +2472,14 @@ def scan_private_message(pm_context, creator_id):
 
             name = get_user['person_view']['person']['name']
             instance = get_user['site']['actor_id'].removeprefix("https://").rstrip("/")
+            logging.info(f"site: {instance}")
             is_admin = get_user['person_view']['is_admin']
-            
+
             if is_admin:
                 return "notspam"
 
             user_url = f"https://{settings.INSTANCE}/u/{name}@{instance}"
-            
+
             if ban_flag:
                 logging.info(f"Account likely spam posting - {user_url}. Will ban.")
                 lemmy.user.ban(ban=True, person_id=creator_id, reason="Automod Ban - Identified as a spam account", remove_data=True)
@@ -2476,12 +2495,12 @@ def scan_private_message(pm_context, creator_id):
                 matrix_body = f"PM Content: \n\n {pm_context}"
                 asyncio.run(send_matrix_message(matrix_body))
                 return "spam"
-                
 
     except Exception as e:
         logging.error(f"Error scanning private message: {e}")
 
     return "notspam"
+
 
 
 def add_pm_spam_phrase(spam_phrase):
