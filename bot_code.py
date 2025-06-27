@@ -668,6 +668,10 @@ def check_pms():
             pmf.pm_takeover(user_admin, pm_context, pm_id, pm_username, pm_sender)
             continue
 
+        if pm_context.split(" -")[0] == "#modremove":
+            pmf.pm_removemod(user_admin, pm_context, pm_id, pm_username, pm_sender)
+            continue
+
         if pm_context.split(" ")[0] == "#vote":
             pmf.pm_vote(pm_context, pm_username, pm_account_age, pm_id, pm_sender, add_vote_to_db)
             continue
@@ -743,6 +747,9 @@ def check_pms():
 
         if pm_context == "#purgerss":
             pmf.pm_purgerss(user_admin, pm_id, check_dbs)
+            
+        if pm_context == "#purgegiveaway":
+            pmf.pm_purgegiveaway(user_admin, pm_id, check_dbs)
 
         if pm_context.split(" ")[0] == "#reject":
             pmf.pm_reject(pm_context, pm_sender, pm_username, pm_id, reject_user)
@@ -1510,7 +1517,7 @@ def check_comments():
                 # this is temporary and fixed, needs putting into the giveaways
                 # table and adding as a variable to the PM command, so it can
                 # be used as part of the wider mod toolset.
-                set_date = datetime(2024, 6, 5)
+                set_date = datetime(2025, 6, 9)
                 difference = set_date - account_age
 
                 if difference > timedelta(days=3):

@@ -92,6 +92,39 @@ def pm_takeover(user_admin, pm_context, pm_id, pm_username, pm_sender):
     lemmy.private_message.mark_as_read(pm_id, True)
     return
 
+def pm_removemod(user_admin, pm_context, pm_id, pm_username, pm_sender):
+    if user_admin:
+        community_name = pm_context.split("-")[1].strip()
+        user_id = pm_context.split("-")[2].strip()
+
+        if user_id == "self":
+            user_id = pm_id
+
+        community_id = lemmy.discover_community(community_name)
+
+        logging.info(
+            "Request for moderator %s to be removed from %s", user_id, community_name
+        )
+
+
+        if community_id is None:
+            lemmy.private_message.create(
+                f"{bot_strings.GREETING} {pm_username}. Sorry, I can't find the community you've requested.",
+                pm_sender)
+            lemmy.private_message.mark_as_read(pm_id, True)
+            return
+
+        lemmy.community.add_mod_to_community(
+            False, community_id=int(community_id), person_id=int(user_id))
+        lemmy.private_message.create(
+            f"Confirmation: {community_name} ({community_id}) has had a moderator removed with user id {user_id}.",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+        
+
 
 def pm_vote(
         pm_context,
@@ -907,6 +940,15 @@ def pm_purgerss(user_admin, pm_id, check_dbs):
     lemmy.private_message.mark_as_read(pm_id, True)
     return
 
+def pm_purgegiveaway(user_admin, pm_id, check_dbs):
+    if user_admin:
+        if os.path.exists('resources/giveaway.db'):
+            os.remove('resources/giveaway.db')
+            check_dbs()
+            lemmy.private_message.mark_as_read(pm_id, True)
+            return
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
 
 def pm_reject(pm_context, pm_sender, pm_username, pm_id, reject_user):
     parts = pm_context.split("#")
