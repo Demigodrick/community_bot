@@ -43,7 +43,7 @@ if __name__ == "__main__":
     schedule.every(10).minutes.do(steam_deals)
 
     # optional
-    if settings.SLUR_ENABLED:
+    if settings.SLUR_ENABLED: #this needs taking out as giveaway functionality is behind check_comments
         schedule.every(10).seconds.do(check_comments)
         schedule.every(10).seconds.do(check_posts)
     if settings.RSS_ENABLED:

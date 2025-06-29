@@ -25,6 +25,8 @@ import bot_strings
 
 lemmy = get_lemmy_instance()
 
+pending_giveaway_setup: dict[str, dict] = {}
+
 
 def pm_help(user_admin, pm_username, pm_id, pm_sender):
     greeting = f"{bot_strings.GREETING} {pm_username}. "
@@ -234,14 +236,88 @@ def pm_countpoll(
     return
 
 
-def pm_giveaway(user_admin, pm_id, pm_context, add_giveaway_thread):
-    if user_admin:
-        thread_id = pm_context.split(" ")[1]
-        add_giveaway_thread(thread_id)
-        lemmy.private_message.mark_as_read(pm_id, True)
-        return
-    lemmy.private_message.mark_as_read(pm_id, True)
-    return
+def pm_giveaway(user_admin, pm_id, pm_context, pm_username, pm_sender, add_giveaway_thread):
+    
+    if not user_admin:
+        lemmy.private_message.mark_as_read(pm_id, True); return
+        
+    parts = pm_context.split()
+    
+    if len(parts) != 2:
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} Please use `#giveaway <thread_id>`.",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True); return
+
+    thread_id = parts[1]
+    pending_giveaway_setup[pm_sender] = {
+        "thread_id": thread_id,
+        "step": 1          # expect next answer
+    }
+    lemmy.private_message.create(
+        "I've got your Giveaway request! 📝  \n How would you like to restrict entrants?\n\n"
+        "• `account <days>` – minimum **account** age in days\n\n"
+        "• `subscribed <days>` – minimum **subscription** age in days\n\n"
+        "• `none` – no age restriction",
+        pm_sender)
+    lemmy.private_message.mark_as_read(pm_id, True)    
+
+
+def pm_giveaway_followup(pm_sender, pm_content, pm_id, add_giveaway_thread):
+    """
+    Called for every PM *after* the first one, **before** normal parsing.
+    """
+    if pm_sender not in pending_giveaway_setup:
+        return False        # nothing pending – caller continues with normal commands
+
+    state = pending_giveaway_setup[pm_sender]
+
+    # ---------- STEP 1 ----------
+    if state["step"] == 1:
+        tkns = pm_content.lower().split()
+        if tkns[0] == "none":
+            state["account_age_limit"] = None
+            state["subscribed_age_limit"] = None
+        elif tkns[0] in ("account", "subscribed") and len(tkns) == 2 and tkns[1].isdigit():
+            days = int(tkns[1])
+            if tkns[0] == "account":
+                state["account_age_limit"] = days
+                state["subscribed_age_limit"] = None
+            else:
+                state["subscribed_age_limit"] = days
+                state["account_age_limit"] = None
+        else:
+            lemmy.private_message.create("Please answer `account <days>`, `subscribed <days>`, or `none`.", pm_sender)
+            lemmy.private_message.mark_as_read(pm_id, True)   
+            return True      # swallow message
+
+        state["step"] = 2
+        lemmy.private_message.create(
+            "Great!  🔒  Restrict to **local users only**?\n\n"
+            "Reply `yes` or `no` (default is no).",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)   
+        return True
+
+    # ---------- STEP 2 ----------
+    if state["step"] == 2:
+        reply = pm_content.strip().lower()
+        state["local_only"] = 1 if reply in ("yes", "y") else 0
+        # Finalise & write to DB -----------------------------------
+        giveaway_id = add_giveaway_thread(
+            state["thread_id"],
+            state["account_age_limit"],
+            state["subscribed_age_limit"],
+            state["local_only"]
+        )
+        lemmy.private_message.create(
+            f"✅ Giveaway set up!  ID #{giveaway_id} is now **active**.",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)   
+        pending_giveaway_setup.pop(pm_sender, None)
+        return True
+
+    return False
 
 
 def pm_closegiveaway(user_admin, close_giveaway_thread, pm_context, pm_id):

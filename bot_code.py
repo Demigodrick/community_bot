@@ -7,6 +7,7 @@ import smtplib
 import sqlite3
 import time
 import psycopg2
+from psycopg2.pool import SimpleConnectionPool
 from datetime import datetime, timedelta, timezone
 from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
@@ -60,6 +61,17 @@ logging.info("Log level set to %s", settings.DEBUG_LEVEL)
 
 # Short term memory PM scanning
 recent_messages = defaultdict(list)
+
+#lemmy db helper
+PG_POOL: SimpleConnectionPool = SimpleConnectionPool(
+    minconn=1,
+    maxconn=5,                        
+    host=settings.DB_HOST,
+    port=settings.DB_PORT,
+    dbname=settings.DB_NAME,
+    user=settings.DB_USER,
+    password=settings.DB_PASSWORD,
+)
 
 def create_table(conn, table_name, table_definition):
     curs = conn.cursor()
@@ -194,7 +206,7 @@ def check_dbs():
             create_table(
                 conn,
                 'giveaways',
-                '(giveaway_id INTEGER PRIMARY KEY, thread_id TEXT, status TEXT DEFAULT "active")')
+                '''(giveaway_id INTEGER PRIMARY KEY, thread_id TEXT NOT NULL, status TEXT DEFAULT 'active', account_age_limit INTEGER DEFAULT NULL, subscribed_age_limit INTEGER DEFAULT NULL, local_only INTEGER DEFAULT 0, CHECK (account_age_limit IS NULL OR subscribed_age_limit IS NULL))''')
 
             create_table(
                 conn,
@@ -225,7 +237,7 @@ def check_dbs():
                 """(id INTEGER PRIMARY KEY, bot_sender TEXT, pm_id INT, pm_sender INT, pm_content TEXT)""")
             
 
-        logging.debug("All tables checked.")
+        logging.info("All local database tables checked.")
 
     except sqlite3.Error as e:
         logging.error("Database error: %s", e)
@@ -628,7 +640,7 @@ def check_pms():
             lemmy.private_message.create(f"{bot_strings.GREETING} {pm_username} \n\n {bot_strings.LOCAL_ONLY_WARNING}\n \n {bot_strings.PM_SIGNOFF}", pm_sender)
             lemmy.private_message.mark_as_read(pm_id, True)
             continue
-
+        
         if pm_context == "#help":
             pmf.pm_help(user_admin, pm_username, pm_id, pm_sender)
             continue
@@ -689,7 +701,7 @@ def check_pms():
             continue
 
         if pm_context.split(" ")[0] == "#giveaway":
-            pmf.pm_giveaway(user_admin, pm_id, pm_context, add_giveaway_thread)
+            pmf.pm_giveaway(user_admin, pm_id, pm_context, pm_username, pm_sender, add_giveaway_thread)
             continue
         
         if pm_context.split(" ")[0] == "#closegiveaway":
@@ -747,9 +759,11 @@ def check_pms():
 
         if pm_context == "#purgerss":
             pmf.pm_purgerss(user_admin, pm_id, check_dbs)
+            continue
             
         if pm_context == "#purgegiveaway":
             pmf.pm_purgegiveaway(user_admin, pm_id, check_dbs)
+            continue
 
         if pm_context.split(" ")[0] == "#reject":
             pmf.pm_reject(pm_context, pm_sender, pm_username, pm_id, reject_user)
@@ -777,6 +791,14 @@ def check_pms():
         
         if pm_context.split(" ")[0] == "#spam_add":
             pmf.pm_spam_add(user_admin, pm_context, pm_sender, pm_id, pm_username, add_pm_spam_phrase)
+            
+        ### Code for conversations
+        if pm_sender in pmf.pending_giveaway_setup:
+            pmf.pm_giveaway_followup(pm_sender, pm_context, pm_id, add_giveaway_thread)    
+            continue
+            
+        ###    
+
 
         # keep this at the bottom
         pmf.pm_notunderstood(pm_username, pm_sender, pm_id)
@@ -962,15 +984,18 @@ def get_communities():
                 mod_id)
 
 
-def add_giveaway_thread(thread_id):
+def add_giveaway_thread(thread_id, account_age_limit, subscribed_age_limit, local_only):
     try:
         with connect_to_giveaway_db() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                'INSERT INTO giveaways (thread_id) VALUES (?)', (thread_id,))
+            cursor.execute("""
+                INSERT INTO giveaways
+                (thread_id, account_age_limit, subscribed_age_limit, local_only)
+                VALUES (?,?,?,?)
+            """, (thread_id, account_age_limit, subscribed_age_limit, local_only))
             conn.commit()
-            giveaway_id = cursor.lastrowid
-            return giveaway_id
+            return cursor.lastrowid
+
     except sqlite3.Error as error:
         logging.error("Failed to execute sqlite statement", error)
         return "Database error occurred"
@@ -1012,8 +1037,113 @@ def draw_giveaway_thread(thread_id, num_winners):
         winners = random.sample(usernames, int(num_winners))
         return winners
 
+def giveaway_entry(thread_id,comment_poster, comment_username, account_age):
+    
+    
+    with connect_to_giveaway_db() as conn:
+        cursor = conn.cursor()
+        
+        cursor.execute("""
+                    SELECT giveaway_id,    
+                        account_age_limit,
+                        subscribed_age_limit,
+                        local_only
+                    FROM giveaways
+                    WHERE thread_id = ?
+                """, (thread_id,))
 
-def check_giveaways(thread_id,comment_poster,comment_username):
+        row = cursor.fetchone()
+        if row is None:
+            return
+
+        giveaway_id, acc_limit, sub_limit, local_only = row
+
+        user_json = lemmy.user.get(comment_poster)
+        post_info = lemmy.post.get(thread_id)
+        community_id = post_info['community_view']['community']['id']
+
+        if local_only and not user_json['person_view']['person']['local']:
+            lemmy.private_message.create(f"Hello {comment_username},\n\n Unfortunately only users local to Lemmy.zip can enter this giveaway. \n\n {bot_strings.PM_SIGNOFF}", comment_poster)
+            return  
+        
+        acc_age = account_age_days(user_json)
+
+        if acc_limit is not None and acc_age < acc_limit:
+            lemmy.private_message.create(f"Hello {comment_username},\n\n Unfortunately your account is too new enter this giveaway. \n\n {bot_strings.PM_SIGNOFF}", comment_poster)
+            return  # too new
+
+        if sub_limit is not None:
+            sub_age = user_subscribed_age_days(comment_poster, community_id)
+            if sub_age is None or sub_age < sub_limit:
+                lemmy.private_message.create(f"Hello {comment_username},\n\n Unfortunately you have not been subscribed to this community long enough to enter this giveaway. \n\n {bot_strings.PM_SIGNOFF}", comment_poster)
+                return  # joined community too recently
+            
+        # check if user is a moderator in the community and if so, reject entry
+        check_if_mod = lemmy.community.get(id=community_id)
+        for moderator_info in check_if_mod['moderators']:
+            if moderator_info['moderator']['id'] == comment_poster:
+                return
+                
+        try:
+            cursor = conn.cursor()
+            cursor.execute(
+                'INSERT INTO entrants (giveaway_id, username) VALUES (?, ?)',
+                (giveaway_id,
+                comment_username))
+            conn.commit()
+            ticket_number = cursor.lastrowid
+            
+            lemmy.private_message.create(f"{bot_strings.GREETING} {comment_username}. Your giveaway entry has been recorded! Your entry number is #{ticket_number} - Good luck!", comment_poster)
+            
+            logging.info("User '%s' has entered giveaway '%s' with ticket number '%s'", comment_poster, giveaway_id, ticket_number)
+        except sqlite3.IntegrityError:
+                logging.info("User '%s' has already entered giveaway '%s'", comment_poster, giveaway_id)
+                
+
+def account_age_days(user_json: dict) -> int:
+    published_str = user_json['person_view']['person']['published']
+    published_dt  = datetime.fromisoformat(published_str.replace("Z", "+00:00"))
+    return (datetime.now(timezone.utc) - published_dt).days
+
+def user_subscribed_age_days(person_id, community_id):
+
+    SQL = """
+        SELECT published
+        FROM community_follower
+        WHERE person_id    = %s
+        AND community_id = %s
+        ORDER BY published ASC
+        LIMIT 1
+    """
+    
+    
+    conn = None
+    try:
+        conn = PG_POOL.getconn()
+        with conn.cursor() as cur:
+            cur.execute(SQL, (person_id, community_id))
+            row = cur.fetchone()
+
+        if row is None:
+            return None  # user never subscribed
+
+        subscribed_at = row[0]
+        if subscribed_at.tzinfo is None:
+            subscribed_at = subscribed_at.replace(tzinfo=timezone.utc)
+
+        return (datetime.now(timezone.utc) - subscribed_at).days
+
+    except psycopg2.Error as e:
+        logging.error("user_subscribed_age_days – DB error: %s", e)
+        return None
+
+    finally:
+        if conn is not None:
+            PG_POOL.putconn(conn)
+    
+        
+
+def check_if_giveaway(thread_id):
     # check if post is in db
     with connect_to_giveaway_db() as conn:
         action_query = '''SELECT giveaway_id, status FROM giveaways WHERE thread_id=?'''
@@ -1023,20 +1153,12 @@ def check_giveaways(thread_id,comment_poster,comment_username):
             giveaway_id = thread_match[0]
             status = thread_match[1]
 
-            if status == 'closed':
-                return
-            try:
-                cursor = conn.cursor()
-                cursor.execute(
-                    'INSERT INTO entrants (giveaway_id, username) VALUES (?, ?)',
-                    (giveaway_id,
-                     comment_username))
-                conn.commit()
-                ticket_number = cursor.lastrowid
-                logging.info("User '%s' has entered giveaway '%s' with ticket number '%s'", comment_poster, giveaway_id, ticket_number)
-                lemmy.private_message.create(f"{bot_strings.GREETING} {comment_username}. Your giveaway entry has been recorded! Your entry number is #{ticket_number} - Good luck!", comment_poster)
-            except sqlite3.IntegrityError:
-                logging.info("User '%s' has already entered giveaway '%s'", comment_poster, giveaway_id)
+            if status == 'active':
+                return True
+            else:
+                return False
+            
+    
 
 
 def new_community_db(community_id, community_name):
@@ -1510,22 +1632,10 @@ def check_comments():
             creator_local = comment['creator']['local']
             thread_id = comment['post']['id']
             account_age = comment['creator']['published']
-
-            if creator_local:
-                account_age = datetime.strptime(
-                    account_age, '%Y-%m-%dT%H:%M:%S.%fZ')
-                # this is temporary and fixed, needs putting into the giveaways
-                # table and adding as a variable to the PM command, so it can
-                # be used as part of the wider mod toolset.
-                set_date = datetime(2025, 6, 9)
-                difference = set_date - account_age
-
-                if difference > timedelta(days=3):
-                    check_giveaways(
-                        thread_id,
-                        comment_poster,
-                        comment_username)
-
+            
+            if check_if_giveaway(thread_id) == True:
+                giveaway_entry(thread_id, comment_poster, comment_username, account_age)
+                
         # Initialize match flags for each post
         match_found_text = False
 
