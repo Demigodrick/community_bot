@@ -13,6 +13,7 @@ from email.mime.image import MIMEImage
 from email.mime.multipart import MIMEMultipart
 from email.mime.text import MIMEText
 from collections import defaultdict
+from urllib.parse import urlparse
 
 import feedparser
 import pytz
@@ -62,22 +63,89 @@ logging.info("Log level set to %s", settings.DEBUG_LEVEL)
 # Short term memory PM scanning
 recent_messages = defaultdict(list)
 
+# Constants for memory management
+PM_MEMORY_WINDOW_SECONDS = 120  # 2 minutes
+PM_MEMORY_MAX_ENTRIES = 10  # Maximum entries per user before cleanup
+PM_MEMORY_CLEANUP_INTERVAL = 300  # Clean up every 5 minutes
+
+# Track last cleanup time
+_last_cleanup_time = time.time()
+
+def cleanup_recent_messages():
+    """Clean up old entries from recent_messages to prevent memory leaks."""
+    global _last_cleanup_time
+    now = time.time()
+    
+    # Only run cleanup every PM_MEMORY_CLEANUP_INTERVAL seconds
+    if now - _last_cleanup_time < PM_MEMORY_CLEANUP_INTERVAL:
+        return
+    
+    _last_cleanup_time = now
+    users_to_remove = []
+    
+    for user_id, timestamps in recent_messages.items():
+        # Remove timestamps older than the memory window
+        recent_messages[user_id] = [t for t in timestamps if now - t <= PM_MEMORY_WINDOW_SECONDS]
+        
+        # If no recent messages, mark user for removal
+        if not recent_messages[user_id]:
+            users_to_remove.append(user_id)
+    
+    # Remove users with no recent messages
+    for user_id in users_to_remove:
+        del recent_messages[user_id]
+    
+    if users_to_remove:
+        logging.debug("Cleaned up recent_messages for %d inactive users", len(users_to_remove))
+
 #lemmy db helper
-PG_POOL: SimpleConnectionPool = SimpleConnectionPool(
-    minconn=1,
-    maxconn=5,                        
-    host=settings.DB_HOST,
-    port=settings.DB_PORT,
-    dbname=settings.DB_NAME,
-    user=settings.DB_USER,
-    password=settings.DB_PASSWORD,
-)
+PG_POOL = None
+
+def initialize_database_connections():
+    """Initialize database connections. Call this to enable database functionality."""
+    global PG_POOL
+    try:
+        PG_POOL = SimpleConnectionPool(
+            minconn=1,
+            maxconn=5,                        
+            host=settings.DB_HOST,
+            port=settings.DB_PORT,
+            dbname=settings.DB_NAME,
+            user=settings.DB_USER,
+            password=settings.DB_PASSWORD,
+        )
+        logging.info("PostgreSQL connection pool initialized successfully")
+        
+    except Exception as e:
+        logging.error(f"Failed to initialize database connections: {e}")
+        raise
+
+
+ALLOWED_TABLES = {
+    'votes', 'polls', 'users', 'communities', 'deals', 'messages', 
+    'new_posts', 'new_comments', 'community_words', 'warnings', 'pm_spam',
+    'feeds', 'posts', 'post_reports', 'comment_reports', 'com_posts',
+    'giveaways', 'entrants', 'enforcement_rules', 'enforcement_sets',
+    'enforcement_log', 'pm_scan_messages'
+}
 
 def create_table(conn, table_name, table_definition):
-    curs = conn.cursor()
-    curs.execute(
-        f'''CREATE TABLE IF NOT EXISTS {table_name} {table_definition}''')
-    conn.commit()
+    if table_name not in ALLOWED_TABLES:
+        logging.error(f"Attempted to create unauthorized table: {table_name}")
+        return 
+
+    try:
+        with conn:
+            curs = conn.cursor()
+            query = f'''CREATE TABLE IF NOT EXISTS {table_name} {table_definition}'''
+            curs.execute(query)
+            logging.debug(f"Successfully created/verified table: {table_name}")
+    except sqlite3.Error as e:
+        logging.error(f"Failed to create table {table_name}: {e}")
+        raise
+    except Exception as e:
+        logging.error(f"Unexpected error creating table {table_name}: {e}")
+        raise
     logging.debug("Checked/created %s table", table_name)
 
 
@@ -206,7 +274,7 @@ def check_dbs():
             create_table(
                 conn,
                 'giveaways',
-                '''(giveaway_id INTEGER PRIMARY KEY, thread_id TEXT NOT NULL, status TEXT DEFAULT 'active', account_age_limit INTEGER DEFAULT NULL, subscribed_age_limit INTEGER DEFAULT NULL, local_only INTEGER DEFAULT 0, CHECK (account_age_limit IS NULL OR subscribed_age_limit IS NULL))''')
+                '''(giveaway_id INTEGER PRIMARY KEY, thread_id TEXT NOT NULL, status TEXT DEFAULT 'active', account_age_limit INTEGER DEFAULT NULL, subscribed_age_limit INTEGER DEFAULT NULL, local_only INTEGER DEFAULT 0, community TEXT, CHECK (account_age_limit IS NULL OR subscribed_age_limit IS NULL))''')
 
             create_table(
                 conn,
@@ -235,7 +303,63 @@ def check_dbs():
                 conn,
                 'pm_scan_messages',
                 """(id INTEGER PRIMARY KEY, bot_sender TEXT, pm_id INT, pm_sender INT, pm_content TEXT)""")
+        
+        auth_db_path = 'resources/auth.db'  # Default fallback
+        if os.path.exists('/bot/auth'):  # Bot container has auth mounted at /bot/auth
+            auth_db_path = '/bot/auth/auth.db'
+            os.makedirs('/bot/auth', exist_ok=True)
+        elif os.path.exists('/app/auth'): 
+            auth_db_path = '/app/auth/auth.db'
+            os.makedirs('/app/auth', exist_ok=True)
+        
+        with sqlite3.connect(auth_db_path) as conn:
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS web_login_requests (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL,
+                    otp_code TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    processed BOOLEAN DEFAULT FALSE
+                )
+            ''')
             
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS otp_codes (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL,
+                    code TEXT NOT NULL,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    expires_at TIMESTAMP NOT NULL,
+                    used BOOLEAN DEFAULT FALSE
+                )
+            ''')
+            
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS user_sessions (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL,
+                    session_token TEXT NOT NULL UNIQUE,
+                    lemmy_user_id INTEGER,
+                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    last_activity TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    expires_at TIMESTAMP NOT NULL
+                )
+            ''')
+            
+            conn.execute('''
+                CREATE TABLE IF NOT EXISTS user_communities (
+                    id INTEGER PRIMARY KEY AUTOINCREMENT,
+                    username TEXT NOT NULL,
+                    lemmy_user_id INTEGER NOT NULL,
+                    community_id INTEGER NOT NULL,
+                    community_name TEXT NOT NULL,
+                    updated_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
+                    UNIQUE(username, community_id)
+                )
+            ''')
+            
+            conn.commit()
+            logging.debug("Auth database tables created/verified")
 
         logging.info("All local database tables checked.")
 
@@ -288,10 +412,35 @@ def connect_to_message_bus_db():
     return sqlite3.connect('resources/welcome/bus.db')
 
 def execute_sql_query(connection, query, params=()):
-    with connection:
-        curs = connection.cursor()
-        curs.execute(query, params)
-        return curs.fetchone()
+    """
+    Execute a SQL query with proper error handling and resource management.
+    
+    Args:
+        connection: Database connection object
+        query: SQL query string
+        params: Query parameters tuple
+        
+    Returns:
+        Query result or None if error
+        
+    Raises:
+        sqlite3.Error: For database-related errors
+    """
+    if not connection:
+        logging.error("No database connection provided")
+        raise ValueError("Database connection is required")
+        
+    try:
+        with connection:
+            curs = connection.cursor()
+            curs.execute(query, params)
+            return curs.fetchone()
+    except sqlite3.Error as e:
+        logging.error(f"SQL query failed: {query[:100]}... Error: {e}")
+        raise
+    except Exception as e:
+        logging.error(f"Unexpected error in SQL query: {e}")
+        raise
 
 
 def check_version():
@@ -711,6 +860,10 @@ def check_pms():
         if pm_context.split(" ")[0] == "#drawgiveaway":
             pmf.pm_drawgiveaway(user_admin, draw_giveaway_thread, pm_context, pm_username, pm_sender, pm_id)
             continue
+        
+        if pm_context.split(" ")[0] == "#addentry":
+            pmf.pm_addentry(user_admin, pm_context, pm_username, pm_sender, pm_id)
+            continue
 
         # broadcast messages
         if pm_context.split(" ")[0] == "#broadcast":
@@ -792,6 +945,11 @@ def check_pms():
         if pm_context.split(" ")[0] == "#spam_add":
             pmf.pm_spam_add(user_admin, pm_context, pm_sender, pm_id, pm_username, add_pm_spam_phrase)
             
+        # Handle web UI login requests
+        if pm_context.startswith("#weblogin"):
+            pmf.pm_weblogin(pm_context, pm_username, pm_sender, pm_id, handle_web_login_request)
+            continue
+            
         ### Code for conversations
         if pm_sender in pmf.pending_giveaway_setup:
             pmf.pm_giveaway_followup(pm_sender, pm_context, pm_id, add_giveaway_thread)    
@@ -805,14 +963,33 @@ def check_pms():
         continue
  
 def is_spam_email(email):
+    # Validate email format first
+    if not email or not isinstance(email, str):
+        logging.error("Invalid email provided to is_spam_email: %s", email)
+        return True  # Treat invalid emails as spam
+    
+    # Check for basic email format
+    if '@' not in email or email.count('@') != 1:
+        logging.error("Malformed email address: %s", email)
+        return True  # Treat malformed emails as spam
 
     suspicious_keywords = {"seo", "info", "sales", "media", "news", "marketing"}
 
     # Count the number of digits in the email
     num_count = sum(char.isdigit() for char in email)
 
-    # Split the email address at '@' to extract the domain
-    local_part, domain = email.split('@')
+    try:
+        # Split the email address at '@' to extract the domain
+        local_part, domain = email.split('@')
+        
+        # Additional validation
+        if not local_part or not domain:
+            logging.error("Empty local part or domain in email: %s", email)
+            return True
+            
+    except ValueError as e:
+        logging.error("Error splitting email address '%s': %s", email, e)
+        return True  # Treat unparseable emails as spam
 
     # Logging the domain for debugging
     logging.info("Checking spam email with domain: %s", domain)
@@ -860,6 +1037,8 @@ def get_new_users():
         username = output['creator']['name']
         email = output['creator_local_user'].get('email')
         public_user_id = output['creator_local_user']['person_id']
+        answer = output['registration_application']['answer']
+        app_id = output['registration_application']['id']
         
         if email is None:
             continue
@@ -885,11 +1064,19 @@ def get_new_users():
 
                 matrix_body = f"New user {username} (https://{settings.INSTANCE}/u/{username}) with ID {public_user_id} has signed up with an email address that may be a temporary or spam email address: {email}"
                 asyncio.run(send_matrix_message(matrix_body))
-
-            if settings.EMAIL_FUNCTION:
-                welcome_email(email)
                 
             insert_block(public_user_id)
+
+            if answer and len(re.findall(r'\w+', answer)) <4:
+                deny_reason = "Hello, thank you for your application to join Lemmy.zip. Unfortunately, you didn't convince us you are a human. Please send an email over to hello@lemmy.zip, and answer one of the questions from our application form. Make sure to include your username so we know who you are! Thanks - Lemmy.zip"
+                lemmy.admin.process_application(application_id=app_id, approve=False, deny_reason=deny_reason)
+                logging.info("Zippy has auto-rejected a one-word application")
+                matrix_body = f"New user {username} (https://{settings.INSTANCE}/u/{username}) with ID {public_user_id} has been automatically rejected."
+                asyncio.run(send_matrix_message(matrix_body))
+                continue
+            
+            if settings.EMAIL_FUNCTION:
+                welcome_email(email)          
 
         continue
 
@@ -988,11 +1175,21 @@ def add_giveaway_thread(thread_id, account_age_limit, subscribed_age_limit, loca
     try:
         with connect_to_giveaway_db() as conn:
             cursor = conn.cursor()
+            
+            # Get community information from the thread
+            community_name = None
+            try:
+                post_info = lemmy.post.get(thread_id)
+                if post_info and 'community_view' in post_info:
+                    community_name = post_info['community_view']['community']['name']
+            except Exception as e:
+                logging.warning(f"Could not get community info for thread {thread_id}: {e}")
+            
             cursor.execute("""
                 INSERT INTO giveaways
-                (thread_id, account_age_limit, subscribed_age_limit, local_only)
-                VALUES (?,?,?,?)
-            """, (thread_id, account_age_limit, subscribed_age_limit, local_only))
+                (thread_id, account_age_limit, subscribed_age_limit, local_only, community)
+                VALUES (?,?,?,?,?)
+            """, (thread_id, account_age_limit, subscribed_age_limit, local_only, community_name))
             conn.commit()
             return cursor.lastrowid
 
@@ -1036,68 +1233,108 @@ def draw_giveaway_thread(thread_id, num_winners):
         random.shuffle(usernames)
         winners = random.sample(usernames, int(num_winners))
         return winners
-
-def giveaway_entry(thread_id,comment_poster, comment_username, account_age):
     
-    
-    with connect_to_giveaway_db() as conn:
-        cursor = conn.cursor()
-        
-        cursor.execute("""
-                    SELECT giveaway_id,    
-                        account_age_limit,
-                        subscribed_age_limit,
-                        local_only
-                    FROM giveaways
-                    WHERE thread_id = ?
-                """, (thread_id,))
 
-        row = cursor.fetchone()
-        if row is None:
-            return
-
-        giveaway_id, acc_limit, sub_limit, local_only = row
-
-        user_json = lemmy.user.get(comment_poster)
-        post_info = lemmy.post.get(thread_id)
-        community_id = post_info['community_view']['community']['id']
-
-        if local_only and not user_json['person_view']['person']['local']:
-            lemmy.private_message.create(f"Hello {comment_username},\n\n Unfortunately only users local to Lemmy.zip can enter this giveaway. \n\n {bot_strings.PM_SIGNOFF}", comment_poster)
-            return  
-        
-        acc_age = account_age_days(user_json)
-
-        if acc_limit is not None and acc_age < acc_limit:
-            lemmy.private_message.create(f"Hello {comment_username},\n\n Unfortunately your account is too new enter this giveaway. \n\n {bot_strings.PM_SIGNOFF}", comment_poster)
-            return  # too new
-
-        if sub_limit is not None:
-            sub_age = user_subscribed_age_days(comment_poster, community_id)
-            if sub_age is None or sub_age < sub_limit:
-                lemmy.private_message.create(f"Hello {comment_username},\n\n Unfortunately you have not been subscribed to this community long enough to enter this giveaway. \n\n {bot_strings.PM_SIGNOFF}", comment_poster)
-                return  # joined community too recently
-            
-        # check if user is a moderator in the community and if so, reject entry
-        check_if_mod = lemmy.community.get(id=community_id)
-        for moderator_info in check_if_mod['moderators']:
-            if moderator_info['moderator']['id'] == comment_poster:
-                return
-                
-        try:
+def giveaway_entry(thread_id,comment_poster, comment_username, account_age, user_instance):
+    try:
+        with connect_to_giveaway_db() as conn:
             cursor = conn.cursor()
-            cursor.execute(
-                'INSERT INTO entrants (giveaway_id, username) VALUES (?, ?)',
-                (giveaway_id,
-                comment_username))
-            conn.commit()
-            ticket_number = cursor.lastrowid
             
-            lemmy.private_message.create(f"{bot_strings.GREETING} {comment_username}. Your giveaway entry has been recorded! Your entry number is #{ticket_number} - Good luck!", comment_poster)
+            cursor.execute("""
+                        SELECT giveaway_id,    
+                            account_age_limit,
+                            subscribed_age_limit,
+                            local_only
+                        FROM giveaways
+                        WHERE thread_id = ?
+                    """, (thread_id,))
+
+            row = cursor.fetchone()
+            if row is None:
+                logging.warning(f"No giveaway found for thread_id: {thread_id}")
+                return
+
+            giveaway_id, acc_limit, sub_limit, local_only = row
+
+            try:
+                user_json = lemmy.user.get(comment_poster)
+                post_info = lemmy.post.get(thread_id)
+                
+                if not user_json or not post_info:
+                    logging.error(f"Failed to fetch user or post data for giveaway entry")
+                    return
+                    
+                community_id = post_info['community_view']['community']['id']
+            except Exception as e:
+                logging.error(f"Error fetching user or post data: {e}")
+                return
+
+            if local_only and not user_json['person_view']['person']['local']:
+                try:
+                    lemmy.private_message.create(f"Hello {comment_username},\n\n Unfortunately only users local to Lemmy.zip can enter this giveaway. \n\n {bot_strings.PM_SIGNOFF}", comment_poster)
+                except Exception as e:
+                    logging.error(f"Failed to send local-only rejection message: {e}")
+                return  
             
-            logging.info("User '%s' has entered giveaway '%s' with ticket number '%s'", comment_poster, giveaway_id, ticket_number)
-        except sqlite3.IntegrityError:
+            acc_age = account_age_days(user_json)
+
+            if acc_limit is not None and acc_age < acc_limit:
+                try:
+                    lemmy.private_message.create(f"Hello {comment_username},\n\n Unfortunately your account is too new enter this giveaway. \n\n {bot_strings.PM_SIGNOFF}", comment_poster)
+                except Exception as e:
+                    logging.error(f"Failed to send age rejection message: {e}")
+                return  # too new
+
+            if sub_limit is not None:
+                sub_age = user_subscribed_age_days(comment_poster, community_id)
+                if sub_age is None or sub_age < sub_limit:
+                    try:
+                        lemmy.private_message.create(f"Hello {comment_username},\n\n Unfortunately you have not been subscribed to this community long enough to enter this giveaway. \n\n {bot_strings.PM_SIGNOFF}", comment_poster)
+                    except Exception as e:
+                        logging.error(f"Failed to send subscription rejection message: {e}")
+                    return  # joined community too recently
+                
+            # check if user is a moderator in the community and if so, reject entry
+            try:
+                check_if_mod = lemmy.community.get(id=community_id)
+                if check_if_mod and 'moderators' in check_if_mod:
+                    for moderator_info in check_if_mod['moderators']:
+                        if moderator_info['moderator']['id'] == comment_poster:
+                            logging.info(f"Moderator {comment_username} attempted to enter giveaway, rejected")
+                            return
+            except Exception as e:
+                logging.error(f"Error checking moderator status: {e}")
+                # Continue with entry process even if mod check fails
+                
+            # get the instance from the ap_id
+            
+            domain = urlparse(user_instance).hostname
+            ap_username = comment_username + "@" + domain
+
+                    
+            try:
+                cursor.execute(
+                    'INSERT INTO entrants (giveaway_id, username) VALUES (?, ?)',
+                    (giveaway_id, ap_username))
+                conn.commit()
+                ticket_number = cursor.lastrowid
+                
+                try:
+                    lemmy.private_message.create(f"{bot_strings.GREETING} {comment_username}. Your giveaway entry has been recorded! Your entry number is #{ticket_number} - Good luck!", comment_poster)
+                except Exception as e:
+                    logging.error(f"Failed to send confirmation message to {comment_username}: {e}")
+                
+                logging.info("User '%s' has entered giveaway '%s' with ticket number '%s'", comment_poster, giveaway_id, ticket_number)
+                
+            except sqlite3.IntegrityError:
                 logging.info("User '%s' has already entered giveaway '%s'", comment_poster, giveaway_id)
+            except sqlite3.Error as e:
+                logging.error(f"Database error during giveaway entry: {e}")
+            except Exception as e:
+                logging.error(f"Unexpected error during giveaway entry: {e}")
+                
+    except Exception as e:
+        logging.error(f"Critical error in giveaway_entry function: {e}")
                 
 
 def account_age_days(user_json: dict) -> int:
@@ -1106,6 +1343,10 @@ def account_age_days(user_json: dict) -> int:
     return (datetime.now(timezone.utc) - published_dt).days
 
 def user_subscribed_age_days(person_id, community_id):
+    # Check if database connections are initialized
+    if PG_POOL is None:
+        logging.warning("PostgreSQL connection pool not initialized. Skipping subscription age check.")
+        return None
 
     SQL = """
         SELECT published
@@ -1195,46 +1436,82 @@ def new_community_db(community_id, community_name):
 
 
 def welcome_email(email):
-    message = MIMEMultipart()
-    message['From'] = settings.SENDER_EMAIL
-    message['To'] = email
-    message['Subject'] = bot_strings.EMAIL_SUBJECT
-
-    # use this for a simple text email, uncomment below:
-    # body
-    # body = bot_strings.EMAIL_SUBJECT + ".\n\n We've received your application and one of our Admins will manually verify your account shortly. \n\n Lemmy.zip prides itself on being a welcoming and inclusive Lemmy instance, and to help reduce spam we manually verify all accounts.\n\n Once your account is accepted, you will receive another email from us confirming this and then you'll be able to log in to your account using the details you set up. You won't be able to login until you've received this confirmation email.\n\n If you've not received an email confirming you have been accepted within a couple of hours, please email hello@lemmy.zip with your username, and we can look into the issue further. Please be patient with us!\n\n Thanks again for signing up to Lemmy.zip, we're excited to welcome you to the Fediverse :)\n\n PS - Once you've logged in, look out for a message from ZippyBot with a guide on how to get started!"
-    # message.attach(MIMEText(body, 'plain'))
-
-    # use this for sending a HTML email i.e. with pictures and colours.
-    # html email - resources to be saved in the "resources" folder
-    with open('resources/index.html', 'r', encoding='utf-8') as html_file:
-        html_content = html_file.read()
-    # Attach the HTML content to the email
-    message.attach(MIMEText(html_content, 'html'))
-
-    # Attach the image as an inline attachment
-    with open('resources/images/image-1.png', 'rb') as image_file:
-        image = MIMEImage(image_file.read())
-        # use content ids and change to img tag in html to match
-        image.add_header('Content-ID', '<image-1>')
-        message.attach(image)
-
-    with open('resources/images/image-2.png', 'rb') as image_file:
-        image = MIMEImage(image_file.read())
-        image.add_header('Content-ID', '<image-2>')
-        message.attach(image)
-
-    # initialise SMTP server - keep from here for either email type.
+    # Validate email format
+    if not email or '@' not in email:
+        logging.error("Invalid email address provided: %s", email)
+        return False
+        
+    server = None
     try:
+        message = MIMEMultipart()
+        message['From'] = settings.SENDER_EMAIL
+        message['To'] = email
+        message['Subject'] = bot_strings.EMAIL_SUBJECT
+
+        # use this for a simple text email, uncomment below:
+        # body
+        # body = bot_strings.EMAIL_SUBJECT + ".\n\n We've received your application and one of our Admins will manually verify your account shortly. \n\n Lemmy.zip prides itself on being a welcoming and inclusive Lemmy instance, and to help reduce spam we manually verify all accounts.\n\n Once your account is accepted, you will receive another email from us confirming this and then you'll be able to log in to your account using the details you set up. You won't be able to login until you've received this confirmation email.\n\n If you've not received an email confirming you have been accepted within a couple of hours, please email hello@lemmy.zip with your username, and we can look into the issue further. Please be patient with us!\n\n Thanks again for signing up to Lemmy.zip, we're excited to welcome you to the Fediverse :)\n\n PS - Once you've logged in, look out for a message from ZippyBot with a guide on how to get started!"
+        # message.attach(MIMEText(body, 'plain'))
+
+        # use this for sending a HTML email i.e. with pictures and colours.
+        # html email - resources to be saved in the "resources" folder
+        try:
+            with open('resources/index.html', 'r', encoding='utf-8') as html_file:
+                html_content = html_file.read()
+            # Attach the HTML content to the email
+            message.attach(MIMEText(html_content, 'html'))
+        except FileNotFoundError:
+            logging.error("HTML template file not found: resources/index.html")
+            return False
+        except Exception as e:
+            logging.error("Error reading HTML template: %s", e)
+            return False
+
+        # Attach images with proper error handling
+        image_files = [
+            ('resources/images/image-1.png', '<image-1>'),
+            ('resources/images/image-2.png', '<image-2>')
+        ]
+        
+        for image_path, content_id in image_files:
+            try:
+                if os.path.exists(image_path):
+                    with open(image_path, 'rb') as image_file:
+                        image = MIMEImage(image_file.read())
+                        image.add_header('Content-ID', content_id)
+                        message.attach(image)
+                else:
+                    logging.warning("Image file not found: %s", image_path)
+            except Exception as e:
+                logging.error("Error attaching image %s: %s", image_path, e)
+                # Continue without this image rather than failing completely
+
+        # initialise SMTP server with proper error handling
         server = smtplib.SMTP(settings.SMTP_SERVER, settings.SMTP_PORT)
         server.starttls()
         server.login(settings.SENDER_EMAIL, settings.SENDER_PASSWORD)
         server.sendmail(settings.SENDER_EMAIL, email, message.as_string())
-        logging.info("Welcome email sent successfully")
+        logging.info("Welcome email sent successfully to %s", email)
+        return True
+        
+    except smtplib.SMTPAuthenticationError as e:
+        logging.error("SMTP authentication failed: %s", e)
+        return False
+    except smtplib.SMTPRecipientsRefused as e:
+        logging.error("SMTP recipients refused: %s", e)
+        return False
+    except smtplib.SMTPException as e:
+        logging.error("SMTP error occurred: %s", e)
+        return False
     except Exception as e:
-        logging.error("Error: Unable to send email.", str(e))
+        logging.error("Unexpected error sending welcome email: %s", e)
+        return False
     finally:
-        server.quit()
+        if server is not None:
+            try:
+                server.quit()
+            except Exception as e:
+                logging.error("Error closing SMTP connection: %s", e)
 
 
 def ban_email(person_id):
@@ -1629,12 +1906,13 @@ def check_comments():
         if settings.GIVEAWAY_ENABLED:
 
             comment_username = comment['creator']['name']
+            user_instance = comment['creator']['actor_id']
             creator_local = comment['creator']['local']
             thread_id = comment['post']['id']
             account_age = comment['creator']['published']
             
             if check_if_giveaway(thread_id) == True:
-                giveaway_entry(thread_id, comment_poster, comment_username, account_age)
+                giveaway_entry(thread_id, comment_poster, comment_username, account_age, user_instance)
                 
         # Initialize match flags for each post
         match_found_text = False
@@ -1666,14 +1944,20 @@ def check_comments():
 
         # admin matrix report
         regex_pattern = re.compile(settings.SLUR_REGEX)
-        match_found = False
 
-        if re.search(regex_pattern, comment_text.lower()):
-            match_found = True
+        found_words = regex_pattern.findall(comment_text.lower())
 
-        if match_found:
-            matrix_body = "Word(s) matching banned list appearing in comment https://" + \
-                settings.INSTANCE + "/comment/" + str(comment_id) + ". - Please review urgently."
+        if found_words:
+            found_words = list(set(found_words))  # remove duplicates
+
+            matrix_body = (
+                "Word(s) matching banned list (" +
+                ", ".join(found_words) +
+                ") appearing in comment https://" +
+                settings.INSTANCE + "/comment/" + str(comment_id) +
+                ". - Please review urgently."
+            )
+
             asyncio.run(send_matrix_message(matrix_body))
             break
 
@@ -1771,16 +2055,29 @@ def check_posts():
 
         # admin matrix report
         regex_pattern = re.compile(settings.SLUR_REGEX)
-        match_found = False
 
-        if re.search(regex_pattern, post_text.lower()):
-            match_found = True
-        if re.search(regex_pattern, post_title.lower()):
-            match_found = True
+        found_words = []
 
-        if match_found:
-            matrix_body = "Word(s) matching banned list appearing in post https://" + \
-                settings.INSTANCE + "/post/" + str(post_id) + ". - Please review urgently."
+        match = re.search(regex_pattern, post_text.lower())
+        if match:
+            found_words.append(match.group(0))
+
+        match = re.search(regex_pattern, post_title.lower())
+        if match:
+            found_words.append(match.group(0))
+
+        if found_words:
+            # remove duplicates just in case
+            found_words = list(set(found_words))
+
+            matrix_body = (
+                "Word(s) matching banned list (" +
+                ", ".join(found_words) +
+                ") appearing in post https://" +
+                settings.INSTANCE + "/post/" + str(post_id) +
+                ". - Please review urgently."
+            )
+
             asyncio.run(send_matrix_message(matrix_body))
             break
         
@@ -1886,7 +2183,7 @@ def check_pending_enforcements():
             
             # **If the post title now contains the required tags, delete the enforcement log**
             if any(tag.lower() in post_title.lower() for tag in required_tags):
-                print(f"Post {post_id} in {community} now contains required tags. Deleting enforcement log.")
+                logging.info(f"Post {post_id} in {community} now contains required tags. Deleting enforcement log.")
                 cursor.execute('DELETE FROM enforcement_log WHERE id = ?', (log_id,))
                 conn.commit()
                 comments = lemmy.comment.list(post_id=post_id)
@@ -1906,7 +2203,7 @@ def check_pending_enforcements():
         pending_logs = cursor.fetchall()
 
         if not pending_logs:
-            print("No pending enforcements.")
+            logging.info("No pending enforcements.")
             return
 
         for log in pending_logs:
@@ -1949,7 +2246,7 @@ def check_pending_enforcements():
             total_steps = cursor.fetchone()[0]
 
             if next_step >= total_steps:
-                print(f"Final action for post {post_id} reached. Deleting log entry.")
+                logging.info(f"Final action for post {post_id} reached. Deleting log entry.")
                 cursor.execute('DELETE FROM enforcement_log WHERE id = ?', (log_id,))
                 conn.commit()
   
@@ -1958,20 +2255,20 @@ def execute_enforcement(community, post_id, rule_id, current_step, duration, act
     # This function will handle the enforcement action without touching the database.
     if action == 'warn':
         lemmy.comment.create(post_id, content=message)
-        print(f"Warning issued for post {post_id} in community {community}")
+        logging.info(f"Warning issued for post {post_id} in community {community}")
         
     elif action == 'remove':
         # Perform the removal action
         post = lemmy.post.get(post_id)
         poster_id = post['post_view']['creator']['id']
         poster_name = post['post_view']['creator']['name']
-        lemmy.private_message.create(f"{bot_strings.GREETING} {poster_name} - Your post has been removed from [{community}](/c/{community}@lemmy.zip) automatically due to not having the correct tags. You can resubmit your post, but please ensure you tag your post with the correct tags. /n/n {bot_strings.PM_SIGNOFF}", poster_id)
+        lemmy.private_message.create(f"{bot_strings.GREETING} {poster_name} - Your post has been removed from [{community}](/c/{community}@lemmy.zip) automatically due to not having the correct tags. You can resubmit your post, but please ensure you tag your post with the correct tags. \n\n {bot_strings.PM_SIGNOFF}", poster_id)
         lemmy.post.remove(post_id, True)
-        print(f"Post {post_id} removed from community {community}.")
+        logging.info(f"Post {post_id} removed from community {community}.")
         
     elif action == 'wait':
         # do nothing
-        print(f"Post {post_id} in community {community} will wait for {duration} hours.")
+        logging.info(f"Post {post_id} in community {community} will wait for {duration} hours.")
         
 
 
@@ -2081,13 +2378,24 @@ def broadcast_message(message):
 
 
 def reject_user(user, rejection):
-    with connect_to_users_db() as conn:
-        query = "SELECT email from users WHERE local_user_id = ?"
-        result = execute_sql_query(conn, query, (user,))
+    server = None
+    try:
+        with connect_to_users_db() as conn:
+            query = "SELECT email from users WHERE local_user_id = ?"
+            result = execute_sql_query(conn, query, (user,))
 
-        if result:
+            if not result:
+                logging.warning("No email found for user ID %s", user)
+                return False
+
             email = result[0]
-            logging.info("Rejection email sent to %s", email)
+            
+            # Validate email format
+            if not email or '@' not in email:
+                logging.error("Invalid email address for user %s: %s", user, email)
+                return False
+                
+            logging.info("Sending rejection email to %s", email)
 
             message = MIMEMultipart()
             message['From'] = settings.SENDER_EMAIL
@@ -2098,19 +2406,31 @@ def reject_user(user, rejection):
             body = "We've rejected your Lemmy.zip application. In order to create an inclusive, active, and spam-free Lemmy instance, we manually review each application. If you think this was a mistake, please email us at hello@lemmy.zip from the email address you created your account with and make sure to include your username, and we'll take a look. \n\n Your account was rejected for the following reason: " + rejection
             message.attach(MIMEText(body, 'plain'))
 
+            server = smtplib.SMTP(settings.SMTP_SERVER, settings.SMTP_PORT)
+            server.starttls()
+            server.login(settings.SENDER_EMAIL, settings.SENDER_PASSWORD)
+            server.sendmail(settings.SENDER_EMAIL, email, message.as_string())
+            logging.info("Rejection email sent successfully to %s", email)
+            return True
+            
+    except smtplib.SMTPAuthenticationError as e:
+        logging.error("SMTP authentication failed for rejection email: %s", e)
+        return False
+    except smtplib.SMTPRecipientsRefused as e:
+        logging.error("SMTP recipients refused for rejection email: %s", e)
+        return False
+    except smtplib.SMTPException as e:
+        logging.error("SMTP error occurred during rejection email: %s", e)
+        return False
+    except Exception as e:
+        logging.error("Unexpected error sending rejection email: %s", e)
+        return False
+    finally:
+        if server is not None:
             try:
-                server = smtplib.SMTP(settings.SMTP_SERVER, settings.SMTP_PORT)
-                server.starttls()
-                server.login(settings.SENDER_EMAIL, settings.SENDER_PASSWORD)
-                server.sendmail(settings.SENDER_EMAIL, email, message.as_string())
-                logging.info("Rejection email sent successfully")
-            except Exception as e:
-                logging.error("Error: Unable to send email. %s", str(e))
-            finally:
                 server.quit()
-        
-        else:
-            logging.warning("No email found for user ID %s", user)
+            except Exception as e:
+                logging.error("Error closing SMTP connection for rejection email: %s", e)
 
 def broadcast_status(pm_sender, status):
     with connect_to_users_db() as conn:
@@ -2479,25 +2799,43 @@ def get_warning_count(person_id):
         raise
 
 async def send_matrix_message(matrix_body):
-    client = AsyncClient(settings.MATRIX_URL, settings.MATRIX_ACCOUNT)
+    client = None
+    try:
+        client = AsyncClient(settings.MATRIX_URL, settings.MATRIX_ACCOUNT)
 
- # use an access token to log in
-    client.access_token = settings.MATRIX_API_KEY
+        # use an access token to log in
+        client.access_token = settings.MATRIX_API_KEY
 
-    room_id = settings.MATRIX_ROOM_ID
+        room_id = settings.MATRIX_ROOM_ID
 
-    # send a message to the room
-    await client.room_send(
-        room_id=room_id,
-        message_type="m.room.message",
-        content={
-            "msgtype": "m.text",
-            "body": matrix_body
-        }
-    )
+        # send a message to the room with timeout to prevent hanging on rate limits
+        import asyncio
+        await asyncio.wait_for(
+            client.room_send(
+                room_id=room_id,
+                message_type="m.room.message",
+                content={
+                    "msgtype": "m.text",
+                    "body": matrix_body
+                }
+            ),
+            timeout=10.0  # 10 second timeout
+        )
 
-    # log out
-    await client.close()
+        logging.debug("Matrix message sent successfully")
+    except asyncio.TimeoutError:
+        logging.warning("Matrix message send timed out (likely due to rate limiting)")
+        logging.info("Bot continuing despite Matrix timeout")
+    except Exception as e:
+        logging.error(f"Failed to send Matrix message: {e}")
+        logging.info("Bot continuing despite Matrix send failure")
+    finally:
+        # Always close the client to prevent resource leaks
+        if client is not None:
+            try:
+                await client.close()
+            except Exception as e:
+                logging.error(f"Error closing Matrix client: {e}")
 
 
 def ordinal(n):
@@ -2508,6 +2846,10 @@ def ordinal(n):
     return str(n) + suffix
 
 def insert_block(person_id):
+    # Check if database connections are initialized
+    if PG_POOL is None:
+        logging.warning("PostgreSQL connection pool not initialized. Skipping instance block insertion.")
+        return
     
     if settings.DEFAULT_INSTANCE_BLOCKS:
         instance_blocks_list = [int(x) for x in settings.DEFAULT_INSTANCE_BLOCKS.split(',')]
@@ -2544,6 +2886,9 @@ def insert_block(person_id):
         
            
 def scan_private_message(pm_context, creator_id):
+    # Clean up old entries to prevent memory leak
+    cleanup_recent_messages()
+    
     spam_flag = False
     ban_flag = False
     is_admin = False
@@ -2565,21 +2910,34 @@ def scan_private_message(pm_context, creator_id):
             spam_flag = True
             ban_flag = True
         
-        # Spam check 2: URL count
+        # Spam check 2: Rapid messaging detection (regardless of URLs)
+        if not spam_flag:
+            # Track all messages for rapid messaging detection
+            recent_messages[creator_id].append(now)
+            recent_messages[creator_id] = [t for t in recent_messages[creator_id] if now - t <= PM_MEMORY_WINDOW_SECONDS]
+            
+            # Check for rapid messaging pattern (4+ messages in 2 minutes)
+            if len(recent_messages[creator_id]) >= 4:
+                spam_flag = True
+                ban_flag = False  # Start with warning for rapid messaging
+                logging.info(f"User {creator_id} flagged for rapid messaging pattern.")
+                
+                # Escalate to ban if they continue (6+ messages in 2 minutes)
+                if len(recent_messages[creator_id]) >= 6:
+                    ban_flag = True
+                    logging.info(f"User {creator_id} escalated to ban for excessive rapid messaging.")
+        
+        # Spam check 3: URL count (additional check)
         if not spam_flag:
             url_count = pm_context.replace(' ', '').count("http")
             if url_count >= 2:
                 spam_flag = True
-                ban_flag = False  # Warn, don't ban
-
-                # **Short-Term Memory Check**
-                recent_messages[creator_id].append(now)
-                recent_messages[creator_id] = [t for t in recent_messages[creator_id] if now - t <= 120]
-
+                ban_flag = False  # Warn, don't ban for URLs alone
+                
+                # Track this as well for escalation
                 if len(recent_messages[creator_id]) >= 3:
-                    spam_flag = True
                     ban_flag = True
-                    logging.info(f"User {creator_id} flagged for rapid spam.")
+                    logging.info(f"User {creator_id} flagged for rapid URL spam.")
 
         if spam_flag:
             get_user = lemmy.user.get(creator_id)
@@ -2633,6 +2991,170 @@ def add_pm_spam_phrase(spam_phrase):
     except sqlite3.Error as e:
         logging.error(f"Error adding spam phrase: {e}")
 
+
+def manual_giveaway_entry(thread_id, target_username):
+    """
+    Manually add a user to a giveaway. Returns a tuple (success, message, ticket_number).
+    """
+    try:
+        # Get user information by username
+        user_search = lemmy.user.get(username=target_username)
+        if not user_search:
+            return False, f"Could not find user '{target_username}'. Please check the username and try again.", None
+
+        target_user_id = user_search['person_view']['person']['id']
+
+        # Check if giveaway exists and is active
+        with connect_to_giveaway_db() as conn:
+            cursor = conn.cursor()
+            cursor.execute("""
+                SELECT giveaway_id, status
+                FROM giveaways
+                WHERE thread_id = ?
+            """, (thread_id,))
+            
+            giveaway_result = cursor.fetchone()
+            if not giveaway_result:
+                return False, f"No giveaway found for thread ID {thread_id}.", None
+
+            giveaway_id, status = giveaway_result
+            if status != 'active':
+                return False, f"The giveaway for thread ID {thread_id} is not active.", None
+
+            # Check if user is already entered
+            cursor.execute("""
+                SELECT ticket_number FROM entrants
+                WHERE giveaway_id = ? AND username = ?
+            """, (giveaway_id, target_username))
+            
+            existing_entry = cursor.fetchone()
+            if existing_entry:
+                return False, f"User '{target_username}' is already entered in this giveaway (ticket #{existing_entry[0]}).", None
+
+            # Add the entry
+            cursor.execute("""
+                INSERT INTO entrants (giveaway_id, username)
+                VALUES (?, ?)
+            """, (giveaway_id, target_username))
+            conn.commit()
+            ticket_number = cursor.lastrowid
+
+            # Notify the user (same as automatic entry)
+            try:
+                lemmy.private_message.create(
+                    f"{bot_strings.GREETING} {target_username}. Your giveaway entry has been recorded! Your entry number is #{ticket_number} - Good luck!",
+                    target_user_id)
+            except Exception as e:
+                logging.error(f"Failed to send notification to user {target_username}: {e}")
+
+            logging.info("User '%s' manually added to giveaway '%s' with ticket number '%s'", 
+                        target_username, giveaway_id, ticket_number)
+            
+            return True, f"Successfully added '{target_username}' to the giveaway (thread ID: {thread_id}, ticket #{ticket_number}).", ticket_number
+
+    except sqlite3.IntegrityError as e:
+        logging.error("Database integrity error in manual_giveaway_entry: %s", e)
+        return False, "Database error: User may already be entered in this giveaway.", None
+    except Exception as e:
+        logging.error("Error in manual_giveaway_entry: %s", e)
+        return False, "An error occurred while adding the entry. Please try again.", None
+
+def check_web_login_requests():
+    """Check for pending web login requests and send OTP PMs"""
+    logging.info("Checking for web login requests...")
+    try:
+        # Use the same auth database path as the web UI
+        auth_db_path = 'resources/auth.db'  # Default fallback
+        if os.path.exists('/bot/auth'):  # Bot container has auth mounted at /bot/auth
+            auth_db_path = '/bot/auth/auth.db'
+        elif os.path.exists('/app/auth'):  # Web UI container has auth at /app/auth
+            auth_db_path = '/app/auth/auth.db'
+        
+        logging.info(f"Using auth database: {auth_db_path}")
+        with sqlite3.connect(auth_db_path) as conn:
+            cursor = conn.cursor()
+            
+            # Get unprocessed login requests
+            cursor.execute('''
+                SELECT id, username, otp_code 
+                FROM web_login_requests 
+                WHERE processed = FALSE
+                ORDER BY created_at ASC
+            ''')
+            
+            requests = cursor.fetchall()
+            
+            if not requests:
+                logging.info("No pending web login requests found")
+                return
+                
+            logging.info(f"Found {len(requests)} pending web login requests")
+            
+            for request_id, username, otp_code in requests:
+                try:
+                    logging.info(f"Processing web login request for user: {username}")
+                    
+                    # Get user info to send PM
+                    user_info = lemmy.user.get(username=username)
+                    if user_info and 'person_view' in user_info:
+                        user_id = user_info['person_view']['person']['id']
+                        
+                        logging.info(f"Found user {username} with ID {user_id}")
+                        
+                        # Send PM with OTP
+                        pm_message = f"{bot_strings.GREETING} {username}!\n\nYour web login verification code is: **{otp_code}**\n\nThis code will expire in 30 minutes. Enter it on the web login page to access the ZippyBot Admin Dashboard.\n\n{bot_strings.PM_SIGNOFF}"
+                        
+                        lemmy.private_message.create(pm_message, user_id)
+                        
+                        # Mark request as processed
+                        cursor.execute('''
+                            UPDATE web_login_requests 
+                            SET processed = TRUE 
+                            WHERE id = ?
+                        ''', (request_id,))
+                        conn.commit()
+                        
+                        logging.info(f"Successfully sent web login OTP to {username}")
+                        
+                    else:
+                        logging.warning(f"Could not find user {username} for web login - user_info: {user_info}")
+                        # Mark as processed to avoid retry
+                        cursor.execute('''
+                            UPDATE web_login_requests 
+                            SET processed = TRUE 
+                            WHERE id = ?
+                        ''', (request_id,))
+                        conn.commit()
+                        
+                except Exception as e:
+                    logging.error(f"Error sending web login OTP to {username}: {e}")
+                    # Don't mark as processed so it can be retried
+                    
+    except Exception as e:
+        logging.error(f"Error checking web login requests: {e}")
+
+def handle_web_login_request(username):
+    """Handle web UI login request by generating and storing OTP"""
+    try:
+        # Import auth functions from web UI
+        import sys
+        import os
+        sys.path.append(os.path.join(os.path.dirname(__file__), 'zippy_web_ui'))
+        from auth import generate_otp, store_otp
+        
+        # Generate OTP
+        otp_code = generate_otp()
+        
+        # Store OTP in database
+        store_otp(username, otp_code)
+        
+        logging.info(f"Generated OTP for web login: {username}")
+        return otp_code
+        
+    except Exception as e:
+        logging.error(f"Error handling web login request: {e}")
+        return None
+
 def check_message_bus():
     with connect_to_message_bus_db() as conn:
         cursor = conn.cursor()
@@ -2649,4 +3171,3 @@ def check_message_bus():
         conn.commit()
 
         scan_private_message(pm_content, pm_sender)
-

@@ -358,6 +358,40 @@ def pm_drawgiveaway(
     lemmy.private_message.mark_as_read(pm_id, True)
     return
 
+def pm_addentry(user_admin, pm_context, pm_username, pm_sender, pm_id):
+    if not user_admin:
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. You need to be an admin to manually add giveaway entries.\n\n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    # Parse command: #addentry <thread_id> <username>
+    parts = pm_context.split()
+    if len(parts) != 3:
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}. Please use the format: `#addentry <thread_id> <username>`\n\n{bot_strings.PM_SIGNOFF}",
+            pm_sender)
+        lemmy.private_message.mark_as_read(pm_id, True)
+        return
+
+    thread_id = parts[1]
+    target_username = parts[2]
+
+    # Import the function from bot_code
+    from bot_code import manual_giveaway_entry
+    
+    # Call the main function
+    success, message, ticket_number = manual_giveaway_entry(thread_id, target_username)
+    
+    # Send response to admin
+    lemmy.private_message.create(
+        f"{bot_strings.GREETING} {pm_username}. {message}\n\n{bot_strings.PM_SIGNOFF}",
+        pm_sender)
+    
+    lemmy.private_message.mark_as_read(pm_id, True)
+    return
+
 
 def pm_broadcast(user_admin, pm_context, pm_id, broadcast_message):
     if user_admin:
@@ -480,6 +514,7 @@ def pm_comscan(pm_context, pm_username, pm_sender, pm_id, add_community_word):
 
     output = lemmy.community.get(name=filters['community'])
 
+    is_moderator = False
     for moderator_info in output['moderators']:
         if moderator_info['moderator']['id'] == pm_sender:
             is_moderator = True
@@ -545,6 +580,7 @@ def pm_welcome(pm_context, pm_username, pm_sender, pm_id, add_welcome_message):
         lemmy.private_message.mark_as_read(pm_id, True)
         return
 
+    is_moderator = False
     for moderator_info in output['moderators']:
         if moderator_info['moderator']['id'] == pm_sender:
             is_moderator = True
@@ -610,7 +646,7 @@ def pm_rss(
         elif flag == 'title_inc':
             filters['title_contains_filter'] = value
         elif flag == 'title_exc':
-            filters['title_excludes_filter']
+            filters['title_excludes_filter'] = value
         elif flag == 'c':
             filters['community'] = value
         elif flag == 't':
@@ -1342,6 +1378,41 @@ def pm_spam_add(user_admin, pm_context, pm_sender, pm_id, pm_username, add_pm_sp
         spam_phrase = parts[2].strip()
         if user_admin:
             add_pm_spam_phrase(spam_phrase)
+
+def pm_weblogin(pm_context, pm_username, pm_sender, pm_id, handle_web_login_request):
+    """Handle web UI login request"""
+    try:
+        # Generate OTP for the user
+        otp_code = handle_web_login_request(pm_username)
+        
+        if otp_code:
+            lemmy.private_message.create(
+                f"{bot_strings.GREETING} {pm_username}.\n\n"
+                f"Your web UI login code is: **{otp_code}**\n\n"
+                f"This code will expire in 30 minutes. Enter it on the web UI login page to access your moderated communities.\n\n"
+                f"{bot_strings.PM_SIGNOFF}",
+                pm_sender
+            )
+            logging.info(f"Sent web login OTP to {pm_username}")
+        else:
+            lemmy.private_message.create(
+                f"{bot_strings.GREETING} {pm_username}.\n\n"
+                f"Sorry, there was an error generating your login code. Please try again later.\n\n"
+                f"{bot_strings.PM_SIGNOFF}",
+                pm_sender
+            )
+            logging.error(f"Failed to generate OTP for {pm_username}")
+            
+    except Exception as e:
+        logging.error(f"Error in pm_weblogin: {e}")
+        lemmy.private_message.create(
+            f"{bot_strings.GREETING} {pm_username}.\n\n"
+            f"Sorry, there was an error processing your login request. Please try again later.\n\n"
+            f"{bot_strings.PM_SIGNOFF}",
+            pm_sender
+        )
+    
+    lemmy.private_message.mark_as_read(pm_id, True)
 
 def pm_notunderstood(pm_username, pm_sender, pm_id):
     lemmy.private_message.create(

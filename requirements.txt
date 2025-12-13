@@ -14,7 +14,7 @@ feedparser==6.0.11
 matrix-nio[e2e]==0.22.1
 semver>=3.0.2
 pytz>=2023.3
-pythorhead>=0.31.2
+pythorhead>=0.34.0
 python-dateutil>=2.8.2
 disposable-email-domains>=0.0.119
 bump-my-version>=0.29.0

@@ -6,48 +6,44 @@ from lemmy_manager import login
 from config import settings
 
 from bot_code import (
-    check_pms, check_dbs, get_new_users, get_communities, steam_deals, 
+    check_pms, get_new_users, get_communities, steam_deals, 
     check_comments, check_posts, check_reports, check_scheduled_posts, 
     clear_notifications, RSS_feed, check_version, check_pending_enforcements,
-    check_message_bus
+    check_message_bus, check_web_login_requests, initialize_database_connections, check_dbs
 )
 
-# Call login function
-login()
-
-
-
-logging.basicConfig(
-    level=logging.DEBUG,
-    format='%(asctime)s - %(levelname)s - %(message)s')
-
 logging.info("Hello! Bot starting...")
+
+# Call login function after logging is configured
+login()
 
 if __name__ == "__main__":
 
     # run once
-    check_version()
-    check_dbs()
+    #check_version()
+    #check_dbs()
+    #initialize_database_connections()  # Comment out to disable database functionality
 
     # seconds
-    schedule.every(5).seconds.do(check_pms)
-    schedule.every(5).seconds.do(check_message_bus)
-    schedule.every(10).seconds.do(get_new_users)
-    schedule.every(30).seconds.do(get_communities)
-    schedule.every(30).seconds.do(check_reports)
-    schedule.every(30).seconds.do(check_scheduled_posts)
-    schedule.every(30).seconds.do(check_pending_enforcements)
+    #schedule.every(5).seconds.do(check_pms)
+    #schedule.every(5).seconds.do(check_message_bus)
+    #schedule.every(10).seconds.do(check_web_login_requests)
+    #schedule.every(10).seconds.do(get_new_users)
+    #schedule.every(30).seconds.do(get_communities)
+    #schedule.every(30).seconds.do(check_reports)
+    #schedule.every(30).seconds.do(check_scheduled_posts)
+    #schedule.every(30).seconds.do(check_pending_enforcements)
 
     # minutes
-    schedule.every(30).minutes.do(clear_notifications)
-    schedule.every(10).minutes.do(steam_deals)
+    #schedule.every(30).minutes.do(clear_notifications)
+    #schedule.every(10).minutes.do(steam_deals)
 
     # optional
     if settings.SLUR_ENABLED: #this needs taking out as giveaway functionality is behind check_comments
         schedule.every(10).seconds.do(check_comments)
-        schedule.every(10).seconds.do(check_posts)
-    if settings.RSS_ENABLED:
-        schedule.every(10).minutes.do(RSS_feed)
+    #    schedule.every(10).seconds.do(check_posts)
+    #if settings.RSS_ENABLED:
+    #    schedule.every(10).minutes.do(RSS_feed)
 
 while True:
     schedule.run_pending()
