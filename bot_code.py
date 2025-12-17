@@ -274,12 +274,12 @@ def check_dbs():
             create_table(
                 conn,
                 'giveaways',
-                '''(giveaway_id INTEGER PRIMARY KEY, thread_id TEXT NOT NULL, status TEXT DEFAULT 'active', account_age_limit INTEGER DEFAULT NULL, subscribed_age_limit INTEGER DEFAULT NULL, local_only INTEGER DEFAULT 0, community TEXT, CHECK (account_age_limit IS NULL OR subscribed_age_limit IS NULL))''')
+                '''(giveaway_id INTEGER PRIMARY KEY, thread_id TEXT NOT NULL, status TEXT DEFAULT 'active', account_age_limit INTEGER DEFAULT NULL, subscribed_age_limit INTEGER DEFAULT NULL, local_only INTEGER DEFAULT 0, subscription_required INTEGER DEFAULT 0, community TEXT, CHECK (account_age_limit IS NULL OR subscribed_age_limit IS NULL))''')
 
             create_table(
                 conn,
                 'entrants',
-                '(ticket_number INTEGER PRIMARY KEY AUTOINCREMENT, giveaway_id INTEGER, username TEXT, entry_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (giveaway_id) REFERENCES giveaways (giveaway_id), UNIQUE (giveaway_id, username))')
+                '(ticket_number INTEGER, giveaway_id INTEGER, username TEXT, entry_time TIMESTAMP DEFAULT CURRENT_TIMESTAMP, FOREIGN KEY (giveaway_id) REFERENCES giveaways (giveaway_id), UNIQUE (giveaway_id, username), PRIMARY KEY (giveaway_id, ticket_number))')
             
         with sqlite3.connect('resources/tags.db') as conn:
             create_table(
@@ -1171,7 +1171,7 @@ def get_communities():
                 mod_id)
 
 
-def add_giveaway_thread(thread_id, account_age_limit, subscribed_age_limit, local_only):
+def add_giveaway_thread(thread_id, account_age_limit, subscribed_age_limit, local_only, subscription_required=0):
     try:
         with connect_to_giveaway_db() as conn:
             cursor = conn.cursor()
@@ -1187,9 +1187,9 @@ def add_giveaway_thread(thread_id, account_age_limit, subscribed_age_limit, loca
             
             cursor.execute("""
                 INSERT INTO giveaways
-                (thread_id, account_age_limit, subscribed_age_limit, local_only, community)
-                VALUES (?,?,?,?,?)
-            """, (thread_id, account_age_limit, subscribed_age_limit, local_only, community_name))
+                (thread_id, account_age_limit, subscribed_age_limit, local_only, subscription_required, community)
+                VALUES (?,?,?,?,?,?)
+            """, (thread_id, account_age_limit, subscribed_age_limit, local_only, subscription_required, community_name))
             conn.commit()
             return cursor.lastrowid
 
@@ -1244,7 +1244,8 @@ def giveaway_entry(thread_id,comment_poster, comment_username, account_age, user
                         SELECT giveaway_id,    
                             account_age_limit,
                             subscribed_age_limit,
-                            local_only
+                            local_only,
+                            subscription_required
                         FROM giveaways
                         WHERE thread_id = ?
                     """, (thread_id,))
@@ -1254,7 +1255,7 @@ def giveaway_entry(thread_id,comment_poster, comment_username, account_age, user
                 logging.warning(f"No giveaway found for thread_id: {thread_id}")
                 return
 
-            giveaway_id, acc_limit, sub_limit, local_only = row
+            giveaway_id, acc_limit, sub_limit, local_only, sub_required = row
 
             try:
                 user_json = lemmy.user.get(comment_poster)
@@ -1285,6 +1286,17 @@ def giveaway_entry(thread_id,comment_poster, comment_username, account_age, user
                     logging.error(f"Failed to send age rejection message: {e}")
                 return  # too new
 
+            # Check subscription requirement (must be subscribed, regardless of duration)
+            if sub_required == 1:
+                sub_age = user_subscribed_age_days(comment_poster, community_id)
+                if sub_age is None:  # None means not subscribed at all
+                    try:
+                        lemmy.private_message.create(f"Hello {comment_username},\n\n Unfortunately you must be subscribed to this community to enter this giveaway. \n\n {bot_strings.PM_SIGNOFF}", comment_poster)
+                    except Exception as e:
+                        logging.error(f"Failed to send subscription requirement message: {e}")
+                    return  # not subscribed
+
+            # Check subscription age limit (how long they've been subscribed)
             if sub_limit is not None:
                 sub_age = user_subscribed_age_days(comment_poster, community_id)
                 if sub_age is None or sub_age < sub_limit:
@@ -1313,11 +1325,18 @@ def giveaway_entry(thread_id,comment_poster, comment_username, account_age, user
 
                     
             try:
+                # Get the next ticket number for this giveaway (starting from 1 for each giveaway)
+                max_ticket = cursor.execute('''
+                    SELECT MAX(ticket_number) as max_ticket FROM entrants WHERE giveaway_id = ?
+                ''', (giveaway_id,)).fetchone()
+                
+                next_ticket = (max_ticket[0] or 0) + 1
+                
                 cursor.execute(
-                    'INSERT INTO entrants (giveaway_id, username) VALUES (?, ?)',
-                    (giveaway_id, ap_username))
+                    'INSERT INTO entrants (ticket_number, giveaway_id, username) VALUES (?, ?, ?)',
+                    (next_ticket, giveaway_id, ap_username))
                 conn.commit()
-                ticket_number = cursor.lastrowid
+                ticket_number = next_ticket
                 
                 try:
                     lemmy.private_message.create(f"{bot_strings.GREETING} {comment_username}. Your giveaway entry has been recorded! Your entry number is #{ticket_number} - Good luck!", comment_poster)
