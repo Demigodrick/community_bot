@@ -317,20 +317,9 @@ def check_dbs():
                 CREATE TABLE IF NOT EXISTS web_login_requests (
                     id INTEGER PRIMARY KEY AUTOINCREMENT,
                     username TEXT NOT NULL,
-                    otp_code TEXT NOT NULL,
+                    magic_link TEXT NOT NULL,
                     created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
                     processed BOOLEAN DEFAULT FALSE
-                )
-            ''')
-            
-            conn.execute('''
-                CREATE TABLE IF NOT EXISTS otp_codes (
-                    id INTEGER PRIMARY KEY AUTOINCREMENT,
-                    username TEXT NOT NULL,
-                    code TEXT NOT NULL,
-                    created_at TIMESTAMP DEFAULT CURRENT_TIMESTAMP,
-                    expires_at TIMESTAMP NOT NULL,
-                    used BOOLEAN DEFAULT FALSE
                 )
             ''')
             
@@ -944,11 +933,6 @@ def check_pms():
         
         if pm_context.split(" ")[0] == "#spam_add":
             pmf.pm_spam_add(user_admin, pm_context, pm_sender, pm_id, pm_username, add_pm_spam_phrase)
-            
-        # Handle web UI login requests
-        if pm_context.startswith("#weblogin"):
-            pmf.pm_weblogin(pm_context, pm_username, pm_sender, pm_id, handle_web_login_request)
-            continue
             
         ### Code for conversations
         if pm_sender in pmf.pending_giveaway_setup:
@@ -3079,7 +3063,7 @@ def manual_giveaway_entry(thread_id, target_username):
         return False, "An error occurred while adding the entry. Please try again.", None
 
 def check_web_login_requests():
-    """Check for pending web login requests and send OTP PMs"""
+    """Check for pending web login requests and send magic link PMs"""
     logging.info("Checking for web login requests...")
     try:
         # Use the same auth database path as the web UI
@@ -3093,9 +3077,9 @@ def check_web_login_requests():
         with sqlite3.connect(auth_db_path) as conn:
             cursor = conn.cursor()
             
-            # Get unprocessed login requests
+            # Get unprocessed login requests with magic links
             cursor.execute('''
-                SELECT id, username, otp_code 
+                SELECT id, username, magic_link 
                 FROM web_login_requests 
                 WHERE processed = FALSE
                 ORDER BY created_at ASC
@@ -3109,7 +3093,7 @@ def check_web_login_requests():
                 
             logging.info(f"Found {len(requests)} pending web login requests")
             
-            for request_id, username, otp_code in requests:
+            for request_id, username, magic_link in requests:
                 try:
                     logging.info(f"Processing web login request for user: {username}")
                     
@@ -3120,8 +3104,8 @@ def check_web_login_requests():
                         
                         logging.info(f"Found user {username} with ID {user_id}")
                         
-                        # Send PM with OTP
-                        pm_message = f"{bot_strings.GREETING} {username}!\n\nYour web login verification code is: **{otp_code}**\n\nThis code will expire in 30 minutes. Enter it on the web login page to access the ZippyBot Admin Dashboard.\n\n{bot_strings.PM_SIGNOFF}"
+                        # Send PM with magic link
+                        pm_message = f"{bot_strings.GREETING} {username}!\n\nClick the link below to log in to the ZippyBot Admin Dashboard:\n\n**{magic_link}**\n\nThis link will expire in 30 minutes. Simply click it to be automatically logged in.\n\n{bot_strings.PM_SIGNOFF}"
                         
                         lemmy.private_message.create(pm_message, user_id)
                         
@@ -3133,7 +3117,7 @@ def check_web_login_requests():
                         ''', (request_id,))
                         conn.commit()
                         
-                        logging.info(f"Successfully sent web login OTP to {username}")
+                        logging.info(f"Successfully sent web login magic link to {username}")
                         
                     else:
                         logging.warning(f"Could not find user {username} for web login - user_info: {user_info}")
@@ -3146,33 +3130,11 @@ def check_web_login_requests():
                         conn.commit()
                         
                 except Exception as e:
-                    logging.error(f"Error sending web login OTP to {username}: {e}")
+                    logging.error(f"Error sending web login magic link to {username}: {e}")
                     # Don't mark as processed so it can be retried
                     
     except Exception as e:
         logging.error(f"Error checking web login requests: {e}")
-
-def handle_web_login_request(username):
-    """Handle web UI login request by generating and storing OTP"""
-    try:
-        # Import auth functions from web UI
-        import sys
-        import os
-        sys.path.append(os.path.join(os.path.dirname(__file__), 'zippy_web_ui'))
-        from auth import generate_otp, store_otp
-        
-        # Generate OTP
-        otp_code = generate_otp()
-        
-        # Store OTP in database
-        store_otp(username, otp_code)
-        
-        logging.info(f"Generated OTP for web login: {username}")
-        return otp_code
-        
-    except Exception as e:
-        logging.error(f"Error handling web login request: {e}")
-        return None
 
 def check_message_bus():
     with connect_to_message_bus_db() as conn:
